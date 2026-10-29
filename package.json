@@ -1,0 +1,22 @@
+{
+  "name": "ashop",
+  "version": "0.1.0",
+  "description": "Headless, stateful, deterministic image compositing engine for scripts and agents",
+  "type": "module",
+  "license": "MIT",
+  "bin": { "ashop": "bin/ashop.js" },
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "docs": "node scripts/gen-docs.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "test": "node --test --test-concurrency=1 test/core.test.js test/mask.test.js test/diff.test.js test/e2e.test.js"
+  },
+  "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "fontkit": "^2.0.4",
+    "sharp": "^0.35.5"
+  }
+}
+
+
+

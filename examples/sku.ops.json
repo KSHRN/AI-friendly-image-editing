@@ -1,0 +1,17 @@
+{
+  "vars": {
+    "bgColor": "#102030",
+    "maskFeather": 2,
+    "tolerance": 12
+  },
+  "steps": [
+    { "op": "layer.import", "args": { "file": "examples/out/shoot.jpg", "name": "base", "fit": "stretch", "at": { "x": 0, "y": 0 } } },
+    { "op": "select.color", "args": { "color": "#f2f2f2", "tolerance": "${tolerance}" } },
+    { "op": "select.invert" },
+    { "op": "mask.from-selection", "args": { "layer": "base", "feather": "${maskFeather}" } },
+    { "op": "layer.fill", "args": { "color": "${bgColor}", "name": "bg", "z-index": 0 } },
+    { "op": "style.add", "args": { "style": "drop-shadow", "layer": "base", "color": "#00000080", "offsetY": 14, "blur": 28 } },
+    { "op": "text.add", "args": { "content": "BATCH RUN", "font": "Arial", "size": 72, "color": "#ffffff", "pos": { "x": 80, "y": 80 } } },
+    { "op": "render", "args": { "out": "examples/out/batch.png" } }
+  ]
+}

@@ -1,0 +1,6 @@
+node_modules/
+examples/out/
+*.ashop
+.ashop/
+.DS_Store
+*.log

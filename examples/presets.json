@@ -1,0 +1,5 @@
+[
+  { "out": "examples/out/preset_1200.png", "width": 1200 },
+  { "out": "examples/out/preset_600.png", "width": 600 },
+  { "out": "examples/out/preset_600.jpg", "width": 600, "format": "jpeg", "quality": 88 }
+]
