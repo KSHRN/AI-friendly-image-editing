@@ -97,7 +97,10 @@ export async function main(argv) {
         ranViaDaemon = true;
       } catch (err) {
         const e = asAshopError(err);
-        if (e.code === 'E_DAEMON' || e.code === 'E_DAEMON_TIMEOUT') {
+        // Only an unreachable daemon may fall back to in-process execution.
+        // After a timeout the daemon may still apply the command, so replaying
+        // it here would run a mutation twice.
+        if (e.code === 'E_DAEMON') {
           warnings.push(`daemon unavailable (${e.message}); ran in-process`);
         } else {
           throw e;

@@ -92,9 +92,18 @@ export async function execViaDaemon(project, command, args, { timeoutMs = 180000
   const payload = { id: `r${++seq}`, command, args, project };
   let response;
   try {
-    response = await requestOnce(pipe, payload, 3000);
+    // Wait as long as the command itself may take. A short "is the daemon
+    // there?" timeout fires on a slow-but-healthy daemon and would make us
+    // replay a mutating command a second time; only a connection failure may
+    // be followed by a spawn + retry.
+    response = await requestOnce(pipe, payload, timeoutMs);
   } catch (err) {
-    if (err.code !== 'E_DAEMON' && err.code !== 'E_DAEMON_TIMEOUT') throw err;
+    if (err.code === 'E_DAEMON_TIMEOUT') {
+      throw new AshopError('E_DAEMON_TIMEOUT', 'the project daemon did not answer in time; the command may still be running there', {
+        hint: `run \`ashop daemon.stop --project "${project}"\`, then retry with --no-daemon`,
+      });
+    }
+    if (err.code !== 'E_DAEMON') throw err;
     spawnDaemon(project);
     const ready = await waitForDaemon(pipe);
     if (!ready) {

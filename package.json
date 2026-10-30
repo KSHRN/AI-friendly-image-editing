@@ -9,7 +9,7 @@
   "scripts": {
     "docs": "node scripts/gen-docs.mjs",
     "smoke": "node scripts/smoke.mjs",
-    "test": "node --test --test-concurrency=1 test/core.test.js test/mask.test.js test/diff.test.js test/e2e.test.js"
+    "test": "node --test --test-concurrency=1 test/core.test.js test/mask.test.js test/diff.test.js test/e2e.test.js test/daemon.test.js"
   },
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2",
