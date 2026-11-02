@@ -23,6 +23,9 @@ import {
 import { combine, invertMask, featherMask, growMask, shrinkMask, borderMask } from './maskops.js';
 import { decodeFile, decodeToRaster, detectMediaType, encodeRaster, encodeMaskPng, sha256Hex } from './codec.js';
 import { Renderer } from './composite.js';
+import { normalizePaintList } from './paint.js';
+import { normalizeShapeContent, normalizeStroke, normalizeStrokeList, SHAPE_CONTENT_VERSION } from './shapes.js';
+import { buildShapeSvg } from './vector.js';
 import { getFilter } from './filters/index.js';
 import { getAdjustment } from './adjustments/index.js';
 import { getStyle } from './styles/index.js';
@@ -131,6 +134,11 @@ export class Session {
       const detected = detectMediaType(bytes);
       mediaType = detected ? detected.mediaType : 'image/png';
     } else if (file) {
+      if (/\.svg$/i.test(String(file))) {
+        fail('E_USAGE', `SVG is a vector format, not a raster image: ${file}`, {
+          hint: 'use `ashop shape.import <file.svg>` to bring it in as a shape layer',
+        });
+      }
       try {
         bytes = await readFile(path.resolve(file));
       } catch (err) {
@@ -181,18 +189,19 @@ export class Session {
     return this.insertNewLayer(layer, { zIndex, parentId });
   }
 
-  addFillLayer({ color = '#ffffff', name = 'Fill', zIndex = null, opacity = 1, blend = 'normal' } = {}) {
+  addFillLayer({ color = '#ffffff', fill, name = 'Fill', zIndex = null, opacity = 1, blend = 'normal' } = {}) {
     const layer = makeLayer('shape', {
       name,
       opacity,
       blend,
       content: {
         type: 'shape',
+        version: SHAPE_CONTENT_VERSION,
         width: this.doc.canvas.width,
         height: this.doc.canvas.height,
         shapes: [{ kind: 'rect', x: 0, y: 0, width: this.doc.canvas.width, height: this.doc.canvas.height }],
-        fill: color,
-        stroke: null,
+        fills: normalizePaintList(fill !== undefined ? fill : color),
+        strokes: [],
         filters: [],
       },
     });
@@ -202,8 +211,8 @@ export class Session {
   addTextLayer({
     text, font = 'Segoe UI', fontFile, size = 72, color = '#000000',
     x = 0, y = 0, width = 0, align = 'left', lineHeight = 1.2, letterSpacing = 0,
-    stroke = null, weight = 400, italic = false, name, zIndex = null, opacity = 1,
-    blend = 'normal', rotation = 0,
+    stroke = null, strokes = undefined, fill = undefined, weight = 400, italic = false,
+    name, zIndex = null, opacity = 1, blend = 'normal', rotation = 0,
   } = {}) {
     const content = {
       type: 'text',
@@ -222,6 +231,9 @@ export class Session {
       italic,
       filters: [],
     };
+    // v2 paint stacks win over the legacy `color` / `stroke` fields.
+    if (fill !== undefined) content.fills = normalizePaintList(fill);
+    if (strokes !== undefined) content.strokes = normalizeStrokeList(strokes);
     const measured = measureText(content);
     content.width = width > 0 ? width : Math.max(1, measured.width);
     content.height = Math.max(1, measured.height);
@@ -236,17 +248,27 @@ export class Session {
   }
 
   addShapeLayer({
-    shapes, width, height, fill = '#ff0055', stroke = null,
+    shapes, width, height, fill, stroke, fills, strokes,
     name = 'Shape', x = 0, y = 0, zIndex = null, opacity = 1, blend = 'normal', rotation = 0,
   } = {}) {
     if (!Array.isArray(shapes) || shapes.length === 0) fail('E_USAGE', 'shape layer needs at least one shape');
     const box = { width: Math.max(1, Math.ceil(width)), height: Math.max(1, Math.ceil(height)) };
+    const content = {
+      type: 'shape',
+      ...box,
+      shapes,
+      // `fills`/`strokes` are the v2 stacks; `fill`/`stroke` stay accepted so
+      // older callers (and the SVG importer) keep working.
+      fills: normalizePaintList(fills !== undefined ? fills : (fill === undefined ? '#ff0055' : fill)),
+      strokes: strokes !== undefined ? normalizeStrokeList(strokes) : (stroke == null ? [] : normalizeStrokeList(stroke)),
+      filters: [],
+    };
     const layer = makeLayer('shape', {
       name,
       opacity,
       blend,
       transform: { ...defaultTransform(), x, y, rotation },
-      content: { type: 'shape', ...box, shapes, fill, stroke, filters: [] },
+      content: normalizeShapeContent(content),
     });
     return this.insertNewLayer(layer, { zIndex });
   }
@@ -335,6 +357,107 @@ export class Session {
     this.markDirty();
     this.renderer.clearCache();
     return layer;
+  }
+
+  /**
+   * Edit a shape layer's appearance.
+   *
+   * By default the layer's default paint stacks are replaced. Pass
+   * `shapeIndex` to target one vector object, which is how a single object
+   * gets its own fills/strokes/opacity in the v2 content model.
+   */
+  updateShape(ref, patch = {}) {
+    const { layer } = findLayer(this.doc, ref);
+    if (layer.type !== 'shape') {
+      fail('E_USAGE', `layer ${layer.id} is a ${layer.type} layer`, { hint: 'shape.set only edits shape layers' });
+    }
+    const content = { ...normalizeShapeContent(layer.content) };
+    const shapes = content.shapes.map((shape) => ({ ...shape }));
+    let target = null;
+    if (patch.shapeIndex != null) {
+      const index = Number(patch.shapeIndex);
+      if (!Number.isInteger(index) || index < 0 || index >= shapes.length) {
+        fail('E_USAGE', `shape index out of range: ${patch.shapeIndex}`, {
+          hint: `this layer has ${shapes.length} vector object(s), indexes 0..${Math.max(0, shapes.length - 1)}`,
+        });
+      }
+      target = shapes[index];
+    }
+    const setFills = (paints) => { if (target) target.fills = paints; else content.fills = paints; };
+    const setStrokes = (list) => { if (target) target.strokes = list; else content.strokes = list; };
+    const currentStrokes = () => (target ? (target.strokes ?? content.strokes ?? []) : (content.strokes ?? []));
+
+    if (patch.fills !== undefined) setFills(normalizePaintList(patch.fills));
+    else if (patch.fill !== undefined) setFills(normalizePaintList(patch.fill));
+
+    if (patch.strokes !== undefined) setStrokes(normalizeStrokeList(patch.strokes));
+    else if (patch.stroke !== undefined) setStrokes(normalizeStrokeList(patch.stroke, { width: patch.strokeWidth ?? 2 }));
+
+    if (patch.strokeWidth !== undefined && patch.stroke === undefined && patch.strokes === undefined) {
+      const list = currentStrokes();
+      if (list.length === 0) fail('E_USAGE', 'layer has no strokes to resize', { hint: 'pass --stroke "#ffffff" as well' });
+      setStrokes(list.map((stroke) => normalizeStroke({ ...stroke, width: patch.strokeWidth }, { width: patch.strokeWidth })));
+    }
+
+    const detail = {};
+    if (patch.strokeLineCap !== undefined) detail.lineCap = patch.strokeLineCap;
+    if (patch.strokeLineJoin !== undefined) detail.lineJoin = patch.strokeLineJoin;
+    if (patch.strokeMiterLimit !== undefined) detail.miterLimit = patch.strokeMiterLimit;
+    if (patch.strokeDash !== undefined) detail.dash = patch.strokeDash;
+    if (patch.strokeDashOffset !== undefined) detail.dashOffset = patch.strokeDashOffset;
+    if (Object.keys(detail).length > 0) {
+      const list = currentStrokes();
+      if (list.length === 0) fail('E_USAGE', 'layer has no strokes to update', { hint: 'pass --stroke "#ffffff" first' });
+      setStrokes(list.map((stroke) => normalizeStroke({ ...stroke, ...detail, width: stroke.width })));
+    }
+
+    if (patch.radius !== undefined) {
+      const radius = Number(patch.radius);
+      if (!Number.isFinite(radius) || radius < 0) fail('E_USAGE', `invalid radius: ${patch.radius}`, { hint: 'radius is a positive number of pixels' });
+      for (const shape of shapes) if (shape.kind === 'rect') shape.radius = radius;
+    }
+    if (patch.fillRule !== undefined) {
+      const rule = String(patch.fillRule).toLowerCase();
+      if (rule !== 'nonzero' && rule !== 'evenodd') fail('E_USAGE', `invalid fill rule: ${patch.fillRule}`, { hint: 'use nonzero or evenodd' });
+      if (target) target.fillRule = rule;
+      else for (const shape of shapes) shape.fillRule = rule;
+    }
+    if (patch.opacity !== undefined) {
+      if (!target) {
+        fail('E_USAGE', 'object opacity needs --shape-index', {
+          hint: 'use `layer.set <layer> --opacity` for whole-layer opacity',
+        });
+      }
+      const value = Number(patch.opacity);
+      if (!(value >= 0 && value <= 1)) fail('E_USAGE', `object opacity must be between 0 and 1, got ${patch.opacity}`);
+      target.opacity = value;
+    }
+
+    content.shapes = shapes;
+    layer.content = normalizeShapeContent(content);
+    touch(this.doc);
+    this.markDirty();
+    this.renderer.clearCache();
+    return layer;
+  }
+
+  async exportShapeSvg(ref, file, { scale = 1 } = {}) {
+    const { layer } = findLayer(this.doc, ref);
+    if (layer.type !== 'shape') {
+      fail('E_UNSUPPORTED', `layer ${layer.id} is not a shape layer`, {
+        hint: 'only vector shape layers can be exported to SVG',
+      });
+    }
+    const { svg, width, height, pad } = buildShapeSvg(layer.content, scale);
+    const target = path.resolve(file);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, svg);
+    return {
+      file: target,
+      width: Math.round((width + pad * 2) * scale),
+      height: Math.round((height + pad * 2) * scale),
+      bytes: Buffer.byteLength(svg),
+    };
   }
 
   duplicate(ref, { name } = {}) {
@@ -715,6 +838,17 @@ export class Session {
     const { layer } = findLayer(this.doc, ref);
     if (layer.type !== 'text') fail('E_USAGE', 'layer is not a text layer');
     const content = { ...layer.content, ...patch };
+    // Paint patches win over the legacy `color` / `stroke` fields. Only touch
+    // those legacy fields when the patch actually replaces them, so editing
+    // text content keeps an existing stroke.
+    if (patch.fill !== undefined) {
+      content.fills = normalizePaintList(patch.fill);
+      delete content.fill;
+    }
+    if (patch.stroke !== undefined) {
+      content.strokes = normalizeStrokeList(patch.stroke, { lineJoin: 'round', lineCap: 'round' });
+      delete content.stroke;
+    }
     const measured = measureText(content);
     content.width = Number(content.width) > 0 ? Number(content.width) : Math.max(1, measured.width);
     content.height = Math.max(1, measured.height);

@@ -1,6 +1,6 @@
 # AShop
 
-**无头、有状态、确定性可复现的图像合成引擎。给脚本、CI 和 Agent 用的「命令行 Photoshop」。**
+**无头、有状态、确定性可复现的图像合成引擎。给脚本、CI 和 Agent 用的「命令行 Photoshop + 矢量外观」。**
 
 ```bash
 ashop init 1200 1200 --session sku_1024
@@ -25,6 +25,7 @@ ashop commit -m "SKU 1024 主图"
 |---|---|
 | 重复的尺寸适配 / 调色 / 蒙版 / 多渠道导出无法沉淀 | 全部变成命令与 JSON 脚本，进 CI |
 | ImageMagick 没有图层树、选区语义、历史回滚 | 图层 DOM + 选区/蒙版 + Git 式历史 |
+| 矢量设计稿（渐变、描边、图标）很难脚本化 | paint 模型 + 对象级绘制栈 + SVG 导入/导出 |
 | 生产环境要求逐像素稳定 | 固定算法、固定色彩路径、像素哈希校验 |
 | Agent 需要「无头可编程」的图像编辑 | 每步都是幂等命令，输出机器可读 JSON，错误带稳定 code 与修复提示 |
 
@@ -45,6 +46,9 @@ node bin/ashop.js render out/preview.png
 
 # 跑完整示例（会生成素材并走完 PDR 的电商主图流程）
 npm run demo
+
+# 矢量外观示例：渐变背景、渐变描边、虚线环、渐变文字、SVG 导入
+npm run demo:vector
 ```
 
 把 `bin/ashop.js` 链接到 PATH 后即可直接 `ashop ...`。
@@ -73,7 +77,7 @@ npm run demo
 | 调整（非破坏） | `adjust.add` · `adjust.set` · `adjust.list` |
 | 滤镜 | `filter.add` · `filter.clear` · `filter.list` |
 | 图层样式 | `style.add` · `style.remove` · `style.info` · `style.list` |
-| 排版/矢量 | `text.add` · `text.set` · `text.measure` · `shape.add` · `shape.info` · `fonts.list` · `fonts.info` |
+| 排版/矢量 | `text.add` · `text.set` · `text.measure` · `shape.add` · `shape.set` · `shape.info` · `shape.export` · `shape.import` · `fonts.list` · `fonts.info` |
 | 批处理 | `run` |
 | 回归 | `diff` · `inspect.*` |
 | 历史 | `commit` · `history.log` · `history.show` · `history.diff` · `history.branch` · `history.checkout` · `history.reset` · `history.branches` |
@@ -132,7 +136,37 @@ ashop style add outer-glow --layer logo --blur 18 --opacity 0.6
 ashop style add bevel --layer button --size 6 --depth 1
 ```
 
-### 4.5 批处理
+### 4.5 矢量外观：渐变、描边与 SVG
+
+填充和描边统一走同一个 paint 模型（`ashop describe paints`）：纯色、线性渐变、径向渐变，可以直接写 CSS 语法。
+
+```bash
+# 渐变填充 + 虚线描边
+ashop shape add rect --rect "100,80,400,200" --radius 16 \
+  --fill "linear-gradient(90deg,#ff0055,#0000ff)" \
+  --stroke "#ffffff" --stroke-width 3 --stroke-dash "12,6"
+
+# 径向渐变、描边细节
+ashop shape set logo --fill "radial-gradient(circle at 30% 20%,#ffffff,#ff0055)"
+ashop shape set logo --stroke-linecap round --stroke-linejoin round
+
+# 多重填充（JSON，自下而上），逐对象覆盖
+ashop shape add ellipse --ellipse "400,300,120,80" --name badge \
+  --fills '[{"type":"solid","color":"#ffcc00"},{"type":"linear-gradient","angle":90,"stops":["#ffffff00","#ffffff88"]}]'
+ashop shape set badge --shape-index 0 --fill "#00ffaa" --opacity 0.6
+
+# SVG 往返
+ashop shape import logo.svg --name logo --at "40,40"
+ashop shape export logo out/logo.svg --scale 2
+```
+
+- 渐变坐标在「对象包围盒」空间（0..1），缩放图层不会改变观感；每个图元可以有自己的 `fills` / `strokes` / `opacity` / `transform`。
+- 文本同样支持：`text add --fill "linear-gradient(...)"`、`text set logo --fill ...`。
+- 描边支持 `cap / join / miterlimit / dash / dash-offset`；内容栅格会按最大描边宽度自动留白，外半边不会在画布边缘被裁掉。
+- `shape.info` 返回结构化的 `appearance`；`--fill none` 清除填充，`--shape-index` 只改某一个图元。
+- `shape.import` 支持常见 SVG 子集（路径/矩形/圆/椭圆/折线/多边形、渐变、transform、继承与 style）；不支持的标签会进 `warnings` 而不是静默丢失。
+
+### 4.6 批处理
 
 `ops.json`：
 
@@ -155,7 +189,7 @@ ashop run ops.json --atomic           # 失败回滚
 ashop run ops.json --atomic --commit -m "batch"
 ```
 
-### 4.6 历史
+### 4.7 历史
 
 ```bash
 ashop commit -m "第一版"
@@ -180,16 +214,18 @@ my.ashop/
 - 所有像素运算在 `RGBA8` 直通 alpha 上完成，固定算法与固定顺序；
 - 噪声使用种子 PRNG（xorshift32），不用 `Math.random`；
 - 文字排版走「fontkit 度量 → 字形轮廓 → resvg 光栅化」，不依赖系统字体回退；
+- 矢量外观同样确定：渐变 id、数字格式、元素顺序全部由内容推导，没有随机 id 或浮点噪声；
 - PNG 编码固定参数，同版本下逐字节稳定；
 - `ashop render` 返回 `sha256`（文件）与 `pixelHash`（像素），可直接进 CI 断言。
 
-`npm test` 覆盖 105 项，包括「两次渲染哈希一致」「diff 全零」「原子回滚不改文档」等；`npm run smoke` 会用 103 条命令把 CLI 全表面跑一遍。
+`npm test` 覆盖 138 项，包括「两次渲染哈希一致」「diff 全零」「原子回滚不改文档」「v1 内容与 v2 外观渲染逐像素一致」等；`npm run smoke` 会用 115 条命令把 CLI 全表面跑一遍。
 
 ## 7. 扩展方式（三层）
 
 1. **加算子**：在 `src/core/adjustments/`、`filters/`、`styles/` 丢一个默认导出文件，自动注册，CLI 参数与文档随之生效。
 2. **加命令**：在 `src/cli/commands/` 丢一个命令对象（或数组），自动出现在 `help`/`schema`，守护进程与批处理直接可用。
 3. **外部插件**：任何可执行程序，遵守 stdin/stdout JSON + 原始 RGBA 文件交换协议即可；见 [`docs/PLUGINS.md`](docs/PLUGINS.md) 与 `examples/plugins/sepia.mjs`。
+4. **外观扩展**：所有填充/描边共用 `src/core/paint.js` 的 paint 模型（`solid` / `linear-gradient` / `radial-gradient`），新增绘制特性只需在 `src/core/shapes.js` 里扩展绘制栈，不必再改合成器。
 
 ## 8. 与 PDR 的差异（有意为之）
 
@@ -197,7 +233,7 @@ my.ashop/
 - **组图层不支持自身变换**（子图层各自变换），保证合成语义可预测。
 - **滤镜是记录式而非即时烘焙**：存在图层内容上、每次渲染重放，方便回滚；语义上仍等价于破坏性滤镜。
 - **YAML 脚本暂未实现**，`run` 只接受 JSON；`schema`/`describe` 为将来的 DSL 生成器留好了接口。
-- **Phase 3/4 未做**：PSD 解析、钢笔工具、通道混合器、CMYK、网格叠加式 Web 观战 GUI。
+- **矢量外观是「观感级」而不是「编辑级」**：渐变、描边细节、多重填充、对象级不透明度、SVG 导入/导出已经可用；但还没有钢笔工具、锚点编辑、路径布尔运算（路径查找器），也读不了 `.ai` / `.psd`。shape 内容模型已经升级到 v2 并为这些能力留了位置（见 `docs/DESIGN.md`）。
 
 ## 9. 目录
 
@@ -206,6 +242,9 @@ bin/ashop.js              CLI 入口
 src/cli/                  参数解析、命令注册、输出、守护进程客户端
 src/cli/commands/         每个域一个文件，自动加载
 src/core/                 文档模型、合成器、选区/蒙版、算子、排版、历史
+src/core/paint.js         统一 paint 模型（纯色 / 线性 / 径向渐变）+ CSS 渐变解析
+src/core/shapes.js        shape 内容 v2：绘制栈、描边规格、内容归一化、几何 → SVG
+src/core/svgimport.js     SVG → shape 内容的容错解析（无外部依赖）
 src/core/adjustments/     调色算子（丢文件即注册）
 src/core/filters/         滤镜算子
 src/core/styles/          图层样式

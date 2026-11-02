@@ -9,8 +9,9 @@ import { AshopError, fail } from '../core/errors.js';
 import {
   parsePoint, parseRect, parsePolygon, parseJson, parseBool,
 } from '../core/units.js';
+import { normalizePaint } from '../core/paint.js';
 
-const VALUE_TYPES = new Set(['string', 'int', 'number', 'enum', 'point', 'rect', 'polygon', 'numberList', 'json', 'color', 'path', 'curve', 'vec3']);
+const VALUE_TYPES = new Set(['string', 'int', 'number', 'enum', 'point', 'rect', 'polygon', 'numberList', 'json', 'color', 'paint', 'path', 'curve', 'vec3']);
 
 export function normalizeParams(spec = {}) {
   const out = {};
@@ -173,6 +174,15 @@ function coerce(raw, def, name) {
           fail('E_USAGE', `${name} must be a colour like "#ff0000", "#ff000080" or "255,0,0"`, { hint: `got "${raw}"` });
         }
         return raw;
+      }
+      case 'paint': {
+        // A colour string, a CSS gradient string, or a JSON paint object.
+        let value = raw;
+        if (typeof value === 'string') {
+          const s = value.trim();
+          if (s.startsWith('{') || s.startsWith('[')) value = parseJson(s, name);
+        }
+        return normalizePaint(value);
       }
       default:
         return String(raw);

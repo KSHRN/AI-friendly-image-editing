@@ -5,31 +5,33 @@ import { adjustmentCatalog } from '../../core/adjustments/index.js';
 import { filterCatalog } from '../../core/filters/index.js';
 import { styleCatalog } from '../../core/styles/index.js';
 import { BLEND_MODE_NAMES } from '../../core/blend.js';
+import { paintCatalog } from '../../core/paint.js';
 import { AshopError } from '../../core/errors.js';
 
 export default {
   name: 'describe',
   aliases: ['info'],
-  summary: 'Describe a command or operator family (adjustments, filters, styles, blends)',
+  summary: 'Describe a command or operator family (adjustments, filters, styles, blends, paints)',
   needsSession: false,
   mutates: false,
   params: {
     name: { type: 'string', positional: true, desc: 'command name or family' },
   },
-  examples: ['ashop describe layer.import', 'ashop describe filters'],
+  examples: ['ashop describe layer.import', 'ashop describe filters', 'ashop describe paints'],
   async run(ctx, args) {
     const { map, list } = await loadCommands();
     const name = args.name;
     if (!name) {
       return {
         commands: commandCatalog(list).map((c) => ({ name: c.name, summary: c.summary })),
-        families: ['adjustments', 'filters', 'styles', 'blends', 'commands', 'document'],
+        families: ['adjustments', 'filters', 'styles', 'blends', 'paints', 'commands', 'document'],
       };
     }
     if (name === 'adjustments') return { adjustments: adjustmentCatalog() };
     if (name === 'filters') return { filters: filterCatalog() };
     if (name === 'styles') return { styles: styleCatalog() };
     if (name === 'blends') return { blendModes: BLEND_MODE_NAMES };
+    if (name === 'paints' || name === 'paint' || name === 'gradients') return { paints: paintCatalog() };
     if (name === 'commands') return { commands: commandCatalog(list) };
     if (name === 'document') {
       return {

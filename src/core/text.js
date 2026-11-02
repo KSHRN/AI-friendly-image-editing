@@ -7,7 +7,8 @@
  */
 
 import { resolveFont } from './fonts.js';
-import { parseColor } from './raster.js';
+import { normalizePaintList, paintAttributes, fmtNumber } from './paint.js';
+import { normalizeStrokeList } from './shapes.js';
 
 const DEFAULT_FONT_SIZE = 72;
 const DEFAULT_LINE_HEIGHT = 1.2;
@@ -109,27 +110,26 @@ function glyphPath(glyphs, startX, baseline, k, letterSpacing) {
 
 const r = (v) => Math.round(v * 100) / 100;
 
-function hex(rgba) {
-  const h = (v) => Math.round(v).toString(16).padStart(2, '0');
-  return `#${h(rgba[0])}${h(rgba[1])}${h(rgba[2])}`;
-}
-
-function escapeAttr(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
 /**
  * Build an SVG that draws the text with its own outlines.
+ *
+ * Paint uses the shared paint model, so text can take gradients and multiple
+ * fills/strokes exactly like a shape layer. `content.color` remains supported
+ * for documents created before version 2.
+ *
  * @returns {{svg: string, width: number, height: number, layout: object}}
  */
 export function textToSvg(content, font, ratio = 1) {
   const layout = layoutText(content, font);
-  const fill = parseColor(content.color ?? '#000000');
-  const stroke = content.stroke && Number(content.stroke.width) > 0 ? content.stroke : null;
-  const strokeColor = stroke ? parseColor(stroke.color ?? '#000000') : null;
-  const pad = stroke ? Math.ceil(Number(stroke.width) / 2) + 1 : 0;
-  const boxW = Math.max(1, Math.ceil(layout.boxWidth) + pad * 2);
-  const boxH = Math.max(1, Math.ceil(layout.height) + pad * 2);
+  const fills = normalizePaintList(content.fills ?? content.fill ?? content.color ?? '#000000');
+  const strokes = content.strokes !== undefined
+    ? normalizeStrokeList(content.strokes, { lineJoin: 'round', lineCap: 'round' })
+    : normalizeStrokeList(content.stroke, { lineJoin: 'round', lineCap: 'round' });
+  const strokePad = strokes.length ? Math.ceil(Math.max(...strokes.map((s) => s.width)) / 2) + 1 : 0;
+  const contentW = Math.max(1, Math.ceil(layout.boxWidth));
+  const contentH = Math.max(1, Math.ceil(layout.height));
+  const boxW = contentW + strokePad * 2;
+  const boxH = contentH + strokePad * 2;
   const k = layout.fontSize / font.unitsPerEm;
   const align = content.align ?? 'left';
 
@@ -138,23 +138,38 @@ export function textToSvg(content, font, ratio = 1) {
     const line = layout.lines[i];
     if (!line) continue;
     const lineWidth = layout.widths[i];
-    let x = pad;
+    let x = strokePad;
     if (align === 'center') x += (layout.boxWidth - lineWidth) / 2;
     else if (align === 'right') x += layout.boxWidth - lineWidth;
-    const baseline = pad + layout.ascent + i * layout.lineHeight;
+    const baseline = strokePad + layout.ascent + i * layout.lineHeight;
     const run = font.layout(line);
     const d = glyphPath(run.glyphs, x, baseline, k, layout.letterSpacing);
     if (d) body.push(d);
   }
-  const fillOpacity = (fill[3] / 255).toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
-  const paths = [];
-  if (stroke && strokeColor) {
-    paths.push(`<path d="${body.join(' ')}" fill="none" stroke="${hex(strokeColor)}" stroke-opacity="${(strokeColor[3] / 255).toFixed(3)}" stroke-width="${Number(stroke.width)}" stroke-linejoin="round" stroke-linecap="round"/>`);
-  }
-  paths.push(`<path d="${body.join(' ')}" fill="${hex(fill)}" fill-opacity="${fillOpacity}" fill-rule="nonzero"/>`);
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${r(boxW * ratio)}" height="${r(boxH * ratio)}" viewBox="0 0 ${boxW} ${boxH}">${paths.join('')}</svg>`;
-  return { svg, width: boxW, height: boxH, layout };
+  const pathData = body.join(' ');
+  const defs = [];
+  const paths = [];
+  if (pathData) {
+    // Strokes sit under the fills, like the old single-stroke rendering.
+    strokes.forEach((stroke, index) => {
+      const attrs = paintAttributes('stroke', stroke.paint, `ts${index}`, defs);
+      let extra = ` fill="none" stroke-width="${fmtNumber(stroke.width)}"`;
+      extra += ` stroke-linecap="${stroke.lineCap}" stroke-linejoin="${stroke.lineJoin}"`;
+      if (stroke.dash) {
+        extra += ` stroke-dasharray="${stroke.dash.map((v) => fmtNumber(v)).join(' ')}"`;
+        if (stroke.dashOffset) extra += ` stroke-dashoffset="${fmtNumber(stroke.dashOffset)}"`;
+      }
+      paths.push(`<path d="${pathData}"${attrs}${extra}/>`);
+    });
+    fills.forEach((paint, index) => {
+      const attrs = paintAttributes('fill', paint, `tf${index}`, defs);
+      paths.push(`<path d="${pathData}"${attrs} fill-rule="nonzero"/>`);
+    });
+  }
+  const defsText = defs.length ? `<defs>${defs.join('')}</defs>` : '';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${r(boxW * ratio)}" height="${r(boxH * ratio)}" viewBox="0 0 ${boxW} ${boxH}">${defsText}${paths.join('')}</svg>`;
+  return { svg, width: contentW, height: contentH, pad: strokePad, layout };
 }
 
 /** Resolve and cache the font, then produce both SVG and measured size. */

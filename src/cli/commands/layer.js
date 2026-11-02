@@ -2,6 +2,7 @@
 
 import { findLayer, listLayers } from '../../core/document.js';
 import { BLEND_MODE_NAMES } from '../../core/blend.js';
+import { AshopError } from '../../core/errors.js';
 
 function view(layer) {
   return layer;
@@ -54,16 +55,33 @@ export default [
   },
   {
     name: 'layer.fill',
-    summary: 'Add a solid colour fill layer covering the canvas',
+    summary: 'Add a fill layer covering the canvas (solid colour or gradient)',
     params: {
-      color: { type: 'color', required: true, desc: 'fill colour' },
+      color: { type: 'color', desc: 'fill colour' },
+      fill: { type: 'paint', desc: 'fill colour or gradient (overrides --color)' },
       name: { type: 'string', default: 'Fill' },
       'z-index': { type: 'int' },
       opacity: { type: 'number', default: 1 },
       blend: { type: 'string', default: 'normal' },
     },
+    examples: [
+      'ashop layer.fill --color "#102030"',
+      'ashop layer.fill --fill "linear-gradient(180deg,#ff0055,#0000ff)" --name backdrop',
+    ],
     async run(ctx, args) {
-      const layer = ctx.session.addFillLayer({ color: args.color, name: args.name, zIndex: args['z-index'], opacity: args.opacity, blend: args.blend });
+      if (args.color === undefined && args.fill === undefined) {
+        throw new AshopError('E_USAGE', 'layer.fill needs --color or --fill', {
+          hint: 'e.g. --color "#102030" or --fill "linear-gradient(90deg,#f05,#05f)"',
+        });
+      }
+      const layer = ctx.session.addFillLayer({
+        color: args.color ?? '#ffffff',
+        fill: args.fill,
+        name: args.name,
+        zIndex: args['z-index'],
+        opacity: args.opacity,
+        blend: args.blend,
+      });
       return { layer: view(layer) };
     },
   },

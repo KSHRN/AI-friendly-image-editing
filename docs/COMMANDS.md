@@ -99,7 +99,7 @@ Stop the project daemon
 
 ### `describe`
 
-Describe a command or operator family (adjustments, filters, styles, blends)
+Describe a command or operator family (adjustments, filters, styles, blends, paints)
 
 别名：`info`
 
@@ -110,6 +110,7 @@ Describe a command or operator family (adjustments, filters, styles, blends)
 ```bash
 ashop describe layer.import
 ashop describe filters
+ashop describe paints
 ```
 
 > 只读 · 不需要工程
@@ -415,15 +416,21 @@ Duplicate a layer (and its group children)
 
 ### `layer.fill`
 
-Add a solid colour fill layer covering the canvas
+Add a fill layer covering the canvas (solid colour or gradient)
 
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
-| `--color` | color | 必填 | fill colour |
+| `--color` | color |  | fill colour |
+| `--fill` | paint |  | fill colour or gradient (overrides --color) |
 | `--name` | string | `"Fill"` |  |
 | `--z-index` | int |  |  |
 | `--opacity` | number | `1` |  |
 | `--blend` | string | `"normal"` |  |
+
+```bash
+ashop layer.fill --color "#102030"
+ashop layer.fill --fill "linear-gradient(180deg,#ff0055,#0000ff)" --name backdrop
+```
 
 > 写操作（自动保存）
 
@@ -912,9 +919,16 @@ Add a vector shape layer (rect / ellipse / polygon / path)
 | `--svg-path` | string |  | path data |
 | `--box` | rect |  | content box for path shapes (defaults to canvas) |
 | `--radius` | number | `0` | corner radius for rect |
-| `--fill` | color |  | fill colour (omit for none) |
-| `--stroke` | color |  | stroke colour |
-| `--stroke-width` | number | `0` |  |
+| `--fill` | paint |  | fill colour or CSS gradient, e.g. "#ff0055" or "linear-gradient(90deg,#f05,#05f)" |
+| `--fills` | json |  | JSON array of fills, bottom first (overrides --fill) |
+| `--stroke` | paint |  | stroke colour or gradient |
+| `--strokes` | json |  | JSON array of strokes, bottom first (overrides --stroke) |
+| `--stroke-width` | number |  | stroke width in px (default 2 when --stroke is given) |
+| `--stroke-linecap` | enum |  | stroke line cap |
+| `--stroke-linejoin` | enum |  | stroke line join |
+| `--stroke-miterlimit` | number |  | miter limit for miter joins |
+| `--stroke-dash` | numberList |  | dash pattern in px, e.g. "8,4" |
+| `--stroke-dash-offset` | number |  | dash phase offset in px |
 | `--name` | string | `"Shape"` |  |
 | `--z-index` | int |  |  |
 | `--opacity` | number | `1` |  |
@@ -923,19 +937,89 @@ Add a vector shape layer (rect / ellipse / polygon / path)
 
 ```bash
 ashop shape.add rect --rect "100,80,400,120" --radius 16 --fill "#ff0055"
+ashop shape.add ellipse --ellipse "600,400,200,120" --fill "linear-gradient(90deg,#ff0055,#0000ff)"
+ashop shape.add rect --rect "100,80,400,120" --fill "#102030" --stroke "#ffffff" --stroke-width 3 --stroke-dash "8,4"
+```
+
+> 写操作（自动保存）
+
+### `shape.export`
+
+Export a shape layer as a standalone SVG file
+
+| 参数 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `<layer>` | string | 必填 |  |
+| `<out>` | path | 必填 | output .svg path |
+| `--scale` | number | `1` | output scale factor |
+
+```bash
+ashop shape.export logo out/logo.svg --scale 2
+```
+
+> 只读
+
+### `shape.import`
+
+Import an SVG file as a vector shape layer
+
+| 参数 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `<file>` | path | 必填 | SVG file to import |
+| `--name` | string |  | layer name (defaults to the file name) |
+| `--z-index` | int |  | 0 = bottom |
+| `--at` | point |  | top-left position on canvas |
+| `--scale` | number | `1` |  |
+| `--rotation` | number | `0` |  |
+| `--opacity` | number | `1` |  |
+| `--blend` | string | `"normal"` |  |
+
+```bash
+ashop shape.import logo.svg --name logo --at 40,40
 ```
 
 > 写操作（自动保存）
 
 ### `shape.info`
 
-Show a shape layer’s vector content
+Show a shape layer’s vector content and paint stacks
 
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
 | `<layer>` | string | 必填 |  |
 
 > 只读
+
+### `shape.set`
+
+Restyle a shape layer: fills, strokes, stroke details, radius, fill rule
+
+| 参数 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `<layer>` | string | 必填 |  |
+| `--fill` | paint |  | fill colour or CSS gradient, e.g. "#ff0055" or "linear-gradient(90deg,#f05,#05f)" |
+| `--fills` | json |  | JSON array of fills, bottom first (overrides --fill) |
+| `--stroke` | paint |  | stroke colour or gradient |
+| `--strokes` | json |  | JSON array of strokes, bottom first (overrides --stroke) |
+| `--stroke-width` | number |  | stroke width in px (default 2 when --stroke is given) |
+| `--stroke-linecap` | enum |  | stroke line cap |
+| `--stroke-linejoin` | enum |  | stroke line join |
+| `--stroke-miterlimit` | number |  | miter limit for miter joins |
+| `--stroke-dash` | numberList |  | dash pattern in px, e.g. "8,4" |
+| `--stroke-dash-offset` | number |  | dash phase offset in px |
+| `--fill-rule` | enum |  |  |
+| `--radius` | number |  | corner radius for rect objects |
+| `--shape-index` | int |  | target one vector object instead of the layer defaults |
+| `--opacity` | number |  | per-object opacity (requires --shape-index) |
+
+```bash
+ashop shape.set logo --fill "linear-gradient(120deg,#ff0055,#0000ff)"
+ashop shape.set logo --stroke "#ffffff" --stroke-width 2 --stroke-linecap round
+ashop shape.set logo --shape-index 0 --fill "#00ffaa"
+ashop shape.set badge --fill none --stroke "#222222" --stroke-width 4
+```
+
+> 写操作（自动保存）
 
 ## status
 
@@ -1014,6 +1098,7 @@ Add a text layer (vector outlines, deterministic layout)
 | `--font-file` | path |  | explicit font file |
 | `--size` | number | `72` |  |
 | `--color` | color | `"#000000"` |  |
+| `--fill` | paint |  | fill colour or gradient (overrides --color) |
 | `--pos` | point | `{"x":0,"y":0}` | top-left position |
 | `--width` | number | `0` | wrap width in px (0 = no wrap) |
 | `--align` | enum | `"left"` |  |
@@ -1021,14 +1106,18 @@ Add a text layer (vector outlines, deterministic layout)
 | `--letter-spacing` | number | `0` |  |
 | `--weight` | int | `400` |  |
 | `--italic` | bool | `false` |  |
-| `--stroke-color` | color |  |  |
+| `--stroke-color` | paint |  |  |
 | `--stroke-width` | number | `0` |  |
+| `--stroke-linecap` | enum | `"round"` |  |
+| `--stroke-linejoin` | enum | `"round"` |  |
+| `--stroke-dash` | numberList |  |  |
 | `--name` | string |  |  |
 | `--z-index` | int |  |  |
 | `--opacity` | number | `1` |  |
 
 ```bash
 ashop text.add --content "SUMMER" --font "Arial" --size 72 --color "#ff0055" --pos "600,100"
+ashop text.add --content "GRADIENT" --size 96 --fill "linear-gradient(90deg,#ff0055,#0000ff)" --pos "120,120"
 ```
 
 > 写操作（自动保存）
@@ -1061,11 +1150,17 @@ Edit a text layer (re-measures automatically)
 | `--font` | string |  |  |
 | `--size` | number |  |  |
 | `--color` | color |  |  |
+| `--fill` | paint |  | fill colour or gradient (overrides --color) |
 | `--width` | number |  |  |
 | `--align` | enum |  |  |
 | `--line-height` | number |  |  |
 | `--letter-spacing` | number |  |  |
 | `--weight` | int |  |  |
+| `--stroke-color` | paint |  |  |
+| `--stroke-width` | number |  |  |
+| `--stroke-linecap` | enum |  |  |
+| `--stroke-linejoin` | enum |  |  |
+| `--stroke-dash` | numberList |  |  |
 
 > 写操作（自动保存）
 

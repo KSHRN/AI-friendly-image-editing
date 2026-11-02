@@ -2,5 +2,6 @@ node_modules/
 examples/out/
 *.ashop
 .ashop/
+.tmp/
 .DS_Store
 *.log

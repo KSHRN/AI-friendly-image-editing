@@ -1,4 +1,4 @@
-import { Raster, parseColor } from '../raster.js';
+import { parseColor } from '../raster.js';
 import { alphaPlane, colorizeAlpha, gaussianBlurAlpha } from '../effects.js';
 
 /** Outer glow: halo outside the silhouette, drawn underneath. */
@@ -14,25 +14,22 @@ export default {
   apply(content, { color = '#ffffff', blur = 16, opacity = 0.7 } = {}) {
     const cw = content.width, ch = content.height;
     const pad = Math.ceil(Math.max(0, blur) * 1.5) + 2;
-    const alpha = alphaPlane(content);
-    const blurred = gaussianBlurAlpha(alpha, cw, ch, Math.max(0.1, blur / 2));
+    const pw = cw + pad * 2;
+    const ph = ch + pad * 2;
+    // Blur a padded plane: the halo has to be able to live outside the box.
+    const src = alphaPlane(content);
+    const alpha = new Uint8ClampedArray(pw * ph);
+    for (let y = 0; y < ch; y++) alpha.set(src.subarray(y * cw, (y + 1) * cw), (y + pad) * pw + pad);
+
+    const blurred = gaussianBlurAlpha(alpha, pw, ph, Math.max(0.1, blur / 2));
     const halo = new Uint8ClampedArray(alpha.length);
     for (let i = 0; i < alpha.length; i++) halo[i] = Math.max(0, blurred[i] - alpha[i]);
-    const glow = colorizeAlpha(halo, cw, ch, parseColor(color));
+    const raster = colorizeAlpha(halo, pw, ph, parseColor(color));
     const op = Math.max(0, Math.min(1, opacity));
-    const raster = new Raster(cw + pad * 2, ch + pad * 2);
-    for (let y = 0; y < ch; y++) {
-      for (let x = 0; x < cw; x++) {
-        const si = (y * cw + x) * 4;
-        const sa = glow.data[si + 3] * op;
-        if (sa <= 0) continue;
-        const di = ((y + pad) * raster.width + (x + pad)) * 4;
-        raster.data[di] = glow.data[si];
-        raster.data[di + 1] = glow.data[si + 1];
-        raster.data[di + 2] = glow.data[si + 2];
-        raster.data[di + 3] = sa;
-      }
+    if (op < 1) {
+      for (let i = 3; i < raster.data.length; i += 4) raster.data[i] = raster.data[i] * op;
     }
     return { under: { raster, pad } };
   },
 };
+

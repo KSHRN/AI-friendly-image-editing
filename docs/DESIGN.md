@@ -24,11 +24,50 @@
 |---|---|---|---|
 | `raster` | `{assetId,width,height,filters[]}` | 支持 | 导入的图片或合并结果 |
 | `text` | 文本 + 字体 + 排版参数 | 支持 | 每帧按 `deviceScale` 重渲染轮廓，缩放不糊 |
-| `shape` | 若干矢量图元 + 填充/描边 | 支持 | rect / ellipse / polygon / path |
+| `shape` | 若干矢量图元 + 每个图元的绘制栈（fills/strokes/opacity/transform） | 支持 | rect / ellipse / polygon / path；v2 内容见 §2.1 |
 | `adjustment` | 调整算子 + 参数 | 忽略 | 作用于「已合成的下方像素」 |
 | `group` | `children[]` | 必须单位矩阵 | 子图层各自变换 |
 
 组内图层先合成到隔离缓冲，再按组的不透明度/混合模式/蒙版/样式整体合成。**组不支持自身变换**，这是有意为之：避免「组变换 + 子变换 + 蒙版坐标」三套坐标互相打架。
+
+### 2.1 外观模型（paint）与 shape 内容 v2
+
+所有「怎么上色」都收敛到 `src/core/paint.js` 的一个模型里：
+
+```
+{ type: 'solid', color: '#rrggbb', opacity: 0..1 }
+{ type: 'linear-gradient', from: {x,y}, to: {x,y}, stops: [...], opacity }
+{ type: 'radial-gradient', center: {x,y}, radius, stops: [...], opacity }
+stop = { offset: 0..1, color: '#rrggbb', opacity: 0..1 }
+```
+
+- 渐变坐标是**对象包围盒空间**（0..1），正好是 SVG 的 `objectBoundingBox`；因此缩放对象不会改变观感，也不需要重算渐变。
+- 入口同时接受 CSS 语法（`linear-gradient(90deg,#f05,#05f)`、`radial-gradient(circle at 30% 20%,…)`）、纯色、以及规范对象；`describe paints` 暴露完整 schema。
+- shape 内容从 v1 的「一个 `fill` + 一个 `stroke`」升级为 v2 的**绘制栈**：
+
+```
+fills:   [paint, ...]   // 自下而上
+strokes: [stroke, ...]  // 覆盖在所有 fills 之上
+stroke = { paint, width, lineCap, lineJoin, miterLimit, dash, dashOffset }
+```
+
+每个图元可以覆写自己的 `fills` / `strokes` / `opacity` / `transform` / `fillRule`。渲染时每个图元按「fills → strokes」发多个 SVG 元素，再用一个 `<g opacity>` 把整组对象当作一个不透明单元。
+
+- v1 文档不迁移、不重写：`normalizeShapeContent()` 在渲染时按需升级，且幂等。命令写回时落 v2。这样历史提交里的旧文档仍然逐像素等价（有回归测试）。
+- 确定性：渐变 id（`f0_0`、`s1_0`）、数字格式、元素顺序都由内容下标推导，没有随机数或时间戳。
+
+### 2.2 内容留白（padding）
+
+矢量内容会在「内容框」之外作画：居中的描边要露出外半边，投影/外发光要往外扩散。渲染器因此返回一个 `pad`（内容单位），合成器据此把内容框映射回画布：
+
+```
+raster_px = content_u * ratio + ox,   ox = pad * ratio
+```
+
+- `ratio` 由实际光栅宽度 / (内容宽 + 2·pad) 求得，避免取整误差累积；
+- 蒙版采样、裁剪（`clipTo`）、样式偏移都按同一组 `ratio/ox/padPx` 换算；
+- 合成器在遍历像素时把包围盒和采样范围一起按 `pad` 扩大，否则效果会被内容框裁掉。
+- 这次还顺带修掉了 v0.1 的两个历史问题：样式（描边/投影/外发光）的偏移符号反了导致整体位移；以及描边的 dilate 在内容平面上做，导致外半边永远不可见。
 
 ## 3. 合成顺序与公式
 
@@ -157,7 +196,9 @@ export default {
 ## 11. 已知限制
 
 - 组图层不能变换；没有智能对象/引用层。
+- 矢量能力目前是「观感级」：没有钢笔/锚点编辑、没有路径布尔运算（路径查找器）、没有文字沿路径；`.ai` / `.psd` 不能读。
+- SVG 导入覆盖常见子集，以下会降级并写 `warnings`：`gradientUnits="userSpaceOnUse"` 渐变降为纯色、`gradientTransform` / `fx/fy` 焦点忽略、`preserveAspectRatio` 按非等比拉伸处理、`rx≠ry` 的圆角矩形用单一半径近似。
 - 没有液化网格缓存、没有 SIMD；超大画布（>8000px）内存与耗时会明显上升。
 - 选区没有「快速蒙版/画笔」——只支持确定性参数化方式（这本来就是产品边界）。
-- `.psd` 导入、CMYK、通道混合器、YAML DSL、Web 观战 GUI 属于路线图，未实现。
+- CMYK、通道混合器、YAML DSL、Web 观战 GUI 属于路线图，未实现。
 - 单个工程同一时刻只应有写者（守护进程会缓存状态）；外部改文件后需要重启守护进程。

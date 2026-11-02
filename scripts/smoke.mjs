@@ -8,7 +8,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
@@ -138,6 +138,25 @@ async function main() {
   run(['shape', 'add', 'polygon', '--polygon', '150,200 200,260 100,260', '--fill', '#aa55ff']);
   run(['shape', 'add', 'path', '--svg-path', 'M20 20 L80 20 L80 60 Z', '--box', '0,0,120,80', '--fill', '#ff8800']);
 
+  console.log('· appearance layer (gradients, strokes, SVG)');
+  run(['text', 'add', '--content', 'GRADIENT', '--font', 'Arial', '--size', '30', '--fill', 'linear-gradient(90deg,#ff0055,#0000ff)', '--pos', '24,120', '--name', 'gt']);
+  const grad = run(['shape', 'add', 'rect', '--rect', '150,180,100,60', '--radius', '8', '--fill', 'linear-gradient(90deg,#ff0055,#0000ff)', '--stroke', '#ffffff', '--stroke-width', '2', '--stroke-dash', '8,4', '--name', 'grad']).layer;
+  run(['shape', 'set', grad.id, '--fill', 'radial-gradient(circle at 30% 30%, #ffffff, #ff0055)']);
+  run(['shape', 'set', grad.id, '--stroke-linecap', 'round', '--stroke-linejoin', 'round']);
+  run(['shape', 'set', grad.id, '--shape-index', '0', '--fill', '#00ffaa', '--opacity', '0.8']);
+  run(['shape', 'info', grad.id]);
+  run(['shape', 'export', grad.id, path.join(dir, 'grad.svg')]);
+  run(['layer', 'fill', '--fill', 'linear-gradient(180deg,#f2f2f2,#d0d0d0)', '--name', 'backdrop', '--z-index', '0']);
+  const markSvg = path.join(dir, 'mark.svg');
+  writeFileSync(markSvg, `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+    <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff0055"/><stop offset="1" stop-color="#0000ff"/></linearGradient></defs>
+    <circle cx="32" cy="32" r="28" fill="url(#g)" stroke="#ffffff" stroke-width="2"/>
+    <path d="M20 34 L30 44 L46 22" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`);
+  const mark = run(['shape', 'import', markSvg, '--name', 'mark', '--at', '320,200']);
+  run(['layer', 'set', mark.layer.id, '--opacity', '0.9']);
+  run(['shape', 'import', markSvg, '--name', 'mark2', '--at', '320,120', '--scale', '0.5']);
+
   console.log('· render / export / diff / inspect');
   const a = run(['render', path.join(dir, 'a.png')]);
   const b = run(['render', path.join(dir, 'b.png')]);
@@ -170,7 +189,6 @@ async function main() {
 
   console.log('· batch');
   const opsFile = path.join(dir, 'ops.json');
-  const { writeFileSync } = await import('node:fs');
   writeFileSync(opsFile, JSON.stringify({
     vars: { opacity: 0.8 },
     steps: [
@@ -188,6 +206,7 @@ async function main() {
   run(['describe', 'filters']);
   run(['describe', 'styles']);
   run(['describe', 'blends']);
+  run(['describe', 'paints']);
   run(['describe', 'commands']);
   run(['schema']);
   run(['daemon', 'status']);
