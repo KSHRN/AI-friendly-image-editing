@@ -11,7 +11,7 @@ export default {
   params: {
     file: { type: 'path', positional: true, required: true, desc: 'SVG file to import' },
     name: { type: 'string', desc: 'layer name (defaults to the file name)' },
-    'z-index': { type: 'int', desc: '0 = bottom' },
+    'z-index': { type: 'int', desc: 'stacking order: higher sits above lower, equal z keeps insertion order (later on top)' },
     at: { type: 'point', desc: 'top-left position on canvas' },
     scale: { type: 'number', default: 1 },
     rotation: { type: 'number', default: 0 },

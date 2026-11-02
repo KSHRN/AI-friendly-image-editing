@@ -30,7 +30,7 @@ export default [
       align: { type: 'enum', values: ['top-left', 'top', 'top-right', 'left', 'center', 'right', 'bottom-left', 'bottom', 'bottom-right'], default: 'center' },
       scale: { type: 'number', default: 1 },
       rotation: { type: 'number', default: 0 },
-      'z-index': { type: 'int', desc: '0 = bottom' },
+      'z-index': { type: 'int', desc: 'stacking order: higher sits above lower, equal z keeps insertion order (later on top)' },
       parent: { type: 'string', desc: 'group layer id' },
       opacity: { type: 'number', default: 1 },
       blend: { type: 'string', default: 'normal' },

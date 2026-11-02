@@ -38,6 +38,7 @@ export async function runDaemon({ project, idleMs = Number(process.env.ASHOP_DAE
 
   async function getSession() {
     if (!session) session = await Session.open(project);
+    else await session.refreshIfStale();
     return session;
   }
 

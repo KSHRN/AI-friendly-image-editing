@@ -7,13 +7,14 @@
  * same way.
  */
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { Raster, parseColor, colorToHex } from './raster.js';
 import { Mask, sampleMaskBilinear } from './mask.js';
 import {
   createDocument, makeLayer, insertLayer, findLayer, detachLayer, moveLayer,
   listLayers, contentSize, touch, validateDocument, walkLayers, layerById, defaultTransform, nextLayerId,
+  siblingArray, insertIndexForStackOrder,
 } from './document.js';
 import { layerMatrix, invert as invertMatrix, apply, matrixBounds } from './matrix.js';
 import {
@@ -47,17 +48,25 @@ export class Session {
     this.doc = doc;
     this.assets = assets;
     this.renderer = new Renderer(assets);
+    // Identity of manifest.json at the last load/save. Used to notice that
+    // another process rewrote the bundle behind a cached session (see
+    // refreshIfStale); null until the first capture.
+    this.manifestStamp = null;
   }
 
   static async createProject(dir, { width, height, background = 'transparent', name } = {}) {
     const doc = createDocument({ width, height, background, name });
     const project = await Project.create(dir, doc, { name });
-    return new Session({ project, doc: project.doc, assets: project.assets });
+    const session = new Session({ project, doc: project.doc, assets: project.assets });
+    await session.captureManifestStamp();
+    return session;
   }
 
   static async open(dir) {
     const project = await Project.open(dir);
-    return new Session({ project, doc: project.doc, assets: project.assets });
+    const session = new Session({ project, doc: project.doc, assets: project.assets });
+    await session.captureManifestStamp();
+    return session;
   }
 
   // -------------------------------------------------------------------------
@@ -76,6 +85,48 @@ export class Session {
     if (!this.project) return;
     this.project.doc = this.doc;
     await this.project.save();
+    await this.captureManifestStamp();
+  }
+
+  /** Record the manifest's current identity (mtime + size). */
+  async captureManifestStamp() {
+    if (!this.project) return null;
+    this.manifestStamp = await manifestStamp(this.project.manifestPath);
+    return this.manifestStamp;
+  }
+
+  /**
+   * Reload the document when another process rewrote the bundle.
+   *
+   * The daemon caches one Session per project. Without this check an external
+   * rewrite — deleting the bundle and running `init` again, another tool
+   * saving it, an editor restoring a backup — would leave the cached session
+   * answering from a document that no longer exists on disk. A missing
+   * manifest counts as stale: reopening it raises the same E_PROJECT_NOT_FOUND
+   * a direct CLI call would raise.
+   *
+   * @returns {Promise<boolean>} true when the document was reloaded
+   */
+  async refreshIfStale() {
+    if (!this.project) return false;
+    const current = await manifestStamp(this.project.manifestPath);
+    if (!this.manifestStamp) {
+      // First observation: remember it, there is nothing to compare yet.
+      this.manifestStamp = current;
+      return false;
+    }
+    if (sameManifestStamp(this.manifestStamp, current)) return false;
+    // Unsaved edits are newer than the manifest; a reload would silently drop
+    // them, so keep the in-memory document instead.
+    if (this.project.dirty) return false;
+
+    const project = await Project.open(this.project.dir);
+    this.project = project;
+    this.doc = project.doc;
+    this.assets = project.assets;
+    this.renderer = new Renderer(project.assets);
+    this.manifestStamp = await manifestStamp(project.manifestPath);
+    return true;
   }
 
   async reloadFresh() {
@@ -109,13 +160,30 @@ export class Session {
   // Layer creation
   // -------------------------------------------------------------------------
 
+  /**
+   * Insert a freshly built layer.
+   *
+   * `zIndex` is a stacking order, not a slot: higher values sit above lower
+   * ones and equal values keep insertion order, so adding a layer with
+   * `--z-index 1` on top of another z-index-1 layer puts it above. Without a
+   * z-index the layer goes on top, as it always did.
+   */
   insertNewLayer(layer, { zIndex = null, parentId = null, aboveId = null } = {}) {
     if (aboveId) {
       const above = findLayer(this.doc, aboveId);
-      const siblings = above.parent ? above.parent.children : this.doc.layers;
       insertLayer(this.doc, layer, { parentId: above.parent ? above.parent.id : null, index: above.index + 1 });
+    } else if (zIndex == null) {
+      // No z-index keeps the old behaviour: stack on top. Such layers are not
+      // tagged, so z-index 0 still resolves below them (see layerStackOrder).
+      insertLayer(this.doc, layer, { parentId });
     } else {
-      insertLayer(this.doc, layer, { parentId, index: zIndex });
+      const z = Number(zIndex);
+      if (!Number.isFinite(z)) {
+        fail('E_USAGE', `invalid z-index: ${zIndex}`, { hint: 'z-index is a number; higher means further up' });
+      }
+      layer.zIndex = z;
+      const siblings = siblingArray(this.doc, parentId);
+      insertLayer(this.doc, layer, { parentId, index: insertIndexForStackOrder(siblings, z) });
     }
     touch(this.doc);
     this.markDirty();
@@ -549,7 +617,11 @@ export class Session {
   }
 
   move(ref, { toIndex = null, toParent = null } = {}) {
-    moveLayer(this.doc, ref, { parentId: toParent, index: toIndex });
+    const layer = moveLayer(this.doc, ref, { parentId: toParent, index: toIndex });
+    // A manual move redefines where the layer sits; forget the remembered
+    // stacking value so a later --z-index insert compares against its new
+    // position instead of the one it had when it was added.
+    delete layer.zIndex;
     touch(this.doc);
     this.markDirty();
     this.renderer.clearCache();
@@ -1021,6 +1093,22 @@ export class Session {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Identity of the manifest file, or null when it is missing/unreadable. */
+async function manifestStamp(file) {
+  try {
+    const info = await stat(file);
+    return { mtimeMs: info.mtimeMs, size: info.size };
+  } catch {
+    return null;
+  }
+}
+
+function sameManifestStamp(a, b) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.mtimeMs === b.mtimeMs && a.size === b.size;
+}
 
 function placeAligned(stage, w, h, align) {
   if (!ALIGNMENTS.includes(align)) fail('E_USAGE', `unknown alignment: ${align}`, { hint: `use one of ${ALIGNMENTS.join(', ')}` });

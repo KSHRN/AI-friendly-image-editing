@@ -189,6 +189,34 @@ export function insertLayer(doc, layer, { parentId = null, index = null, id = nu
   return layer;
 }
 
+/**
+ * Effective stacking order of a sibling layer.
+ *
+ * `zIndex` is remembered on the layer when it was inserted with an explicit
+ * value. Layers without one fall back to `index + 1`, so z-index 0 sits below
+ * every layer that never asked for an explicit stack position (the documented
+ * "0 = background" use) and documents written before z-index meant a stacking
+ * order keep their paint order.
+ */
+export function layerStackOrder(layer, index) {
+  return Number.isFinite(layer?.zIndex) ? layer.zIndex : index + 1;
+}
+
+/**
+ * Insertion slot for a layer whose stacking order is `z`.
+ *
+ * The new layer goes above every sibling with an order <= z, which is what
+ * makes equal z-index values keep insertion order (the later layer ends up on
+ * top) instead of pushing the earlier one up.
+ */
+export function insertIndexForStackOrder(siblings, z) {
+  let index = 0;
+  for (let i = 0; i < siblings.length; i++) {
+    if (layerStackOrder(siblings[i], i) <= z) index = i + 1;
+  }
+  return index;
+}
+
 export function detachLayer(doc, ref) {
   const node = findLayer(doc, ref);
   const siblings = node.parent ? node.parent.children : doc.layers;

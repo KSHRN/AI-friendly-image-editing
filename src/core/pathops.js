@@ -106,13 +106,24 @@ function ensureRing(points) {
 
 /**
  * Flatten a shape layer to closed rings in canvas space.
+ *
+ * @param {object} layer shape layer
+ * @param {{tolerance?: number, fillOnly?: boolean}} [options] `fillOnly` skips
+ *   vector objects whose paint stack has no fill. Booleans must pass it:
+ *   stroke-only objects have no area but the same outline as the filled copy
+ *   they accompany in imported SVGs, and the duplicate rings make the nesting
+ *   analysis ambiguous (two coincident rings would each claim the other as a
+ *   parent). path.info leaves it off so stroke outlines stay inspectable.
  * @returns {number[][][]} rings of [x, y] pairs
  */
-export function shapeToPolygons(layer, { tolerance = 0.2 } = {}) {
+export function shapeToPolygons(layer, { tolerance = 0.2, fillOnly = false } = {}) {
   const content = normalizeShapeContent(layer.content);
   const layerM = layerMatrix(layer.transform, content.width, content.height);
   const rings = [];
   for (const shape of content.shapes) {
+    // Per-object stacks override the layer-level default, same as the renderer.
+    const fills = shape.fills !== undefined ? shape.fills : content.fills;
+    if (fillOnly && !(fills && fills.length > 0)) continue;
     const matrix = shape.transform ? multiply(layerM, shape.transform) : layerM;
     const d = shapePathData(shape);
     if (!d) continue;
@@ -164,6 +175,10 @@ export function ringsToMultiPolygon(rings) {
     let parentArea = Infinity;
     for (const other of items) {
       if (other === item) continue;
+      // A parent must strictly contain the ring, hence be strictly larger.
+      // Without this a ring can "contain" a coincident twin and both become
+      // each other's parent, which the ancestor walk below then never exits.
+      if (other.area <= item.area) continue;
       if (pointInRing(item.ring[0], other.ring)) {
         depth++;
         if (other.area < parentArea) {
@@ -180,7 +195,13 @@ export function ringsToMultiPolygon(rings) {
   for (const item of items) {
     if (item.depth % 2 === 0) continue;
     let ancestor = item.parent;
-    while (ancestor && ancestor.depth % 2 !== 0) ancestor = ancestor.parent;
+    // Belt and braces: a malformed/degenerate nesting graph must not spin here.
+    const seen = new Set();
+    while (ancestor && ancestor.depth % 2 !== 0) {
+      if (seen.has(ancestor)) { ancestor = null; break; }
+      seen.add(ancestor);
+      ancestor = ancestor.parent;
+    }
     if (ancestor) ancestor.holes.push(item.ring);
   }
   return outers.map((outer) => [outer.ring, ...outer.holes]);
@@ -199,16 +220,18 @@ export function booleanShapeLayers(layerA, layerB, op, { tolerance = 0.2 } = {})
   if (!fn) {
     fail('E_USAGE', `unknown path boolean: ${op}`, { hint: `use one of: ${PATH_BOOLEAN_OPS.join(', ')}` });
   }
-  const a = ringsToMultiPolygon(shapeToPolygons(layerA, { tolerance }));
-  const b = ringsToMultiPolygon(shapeToPolygons(layerB, { tolerance }));
+  // Booleans combine fill areas only; a stroke-only twin contributes no area
+  // and would duplicate every outline of the filled copy.
+  const a = ringsToMultiPolygon(shapeToPolygons(layerA, { tolerance, fillOnly: true }));
+  const b = ringsToMultiPolygon(shapeToPolygons(layerB, { tolerance, fillOnly: true }));
   if (a.length === 0) {
     fail('E_PATH_EMPTY', `layer "${layerA.name}" has no fillable geometry`, {
-      hint: 'path booleans need shapes with an outline (rect/ellipse/polygon/path)',
+      hint: 'path booleans combine filled outlines; stroke-only objects have no fill area',
     });
   }
   if (b.length === 0) {
     fail('E_PATH_EMPTY', `layer "${layerB.name}" has no fillable geometry`, {
-      hint: 'path booleans need shapes with an outline (rect/ellipse/polygon/path)',
+      hint: 'path booleans combine filled outlines; stroke-only objects have no fill area',
     });
   }
   let result;
