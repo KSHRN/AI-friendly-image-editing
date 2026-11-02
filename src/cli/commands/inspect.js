@@ -2,6 +2,7 @@
 
 import { pixelAt, regionStats, histogram, topColors, imageSummary } from '../../core/stats.js';
 import { findLayer, contentSize } from '../../core/document.js';
+import { AshopError } from '../../core/errors.js';
 
 async function sample(ctx, layerRef) {
   if (layerRef) {
@@ -85,10 +86,23 @@ export default [
       layer: { type: 'string' },
       limit: { type: 'int', default: 8 },
       quantize: { type: 'int', default: 16 },
+      // Shadows / semi-transparent overlays leave a long tail of almost
+      // invisible colours (e.g. #1b3f4d04); skipping them keeps the dominant
+      // colour readable (F-011).
+      'min-alpha': { type: 'int', default: 8, desc: 'ignore pixels with alpha below this value (0..255)' },
     },
     async run(ctx, args) {
+      if (args['min-alpha'] < 0 || args['min-alpha'] > 255) {
+        throw new AshopError('E_USAGE', `min-alpha must be within 0..255, got ${args['min-alpha']}`);
+      }
       const raster = await sample(ctx, args.layer);
-      return { colors: topColors(raster, { limit: args.limit, quantize: args.quantize }) };
+      return {
+        colors: topColors(raster, {
+          limit: args.limit,
+          quantize: args.quantize,
+          minAlpha: args['min-alpha'],
+        }),
+      };
     },
   },
   {

@@ -21,11 +21,11 @@ export default [
     collectUnknown: true,
     params: {
       filter: { type: 'string', positional: true, required: true, desc: 'filter name, e.g. gaussian-blur' },
-      layer: { type: 'string', required: true },
+      layer: { type: 'string', positional: true, required: true, desc: 'layer id or name (positional; --layer also accepted)' },
     },
     examples: [
-      'ashop filter.add gaussian-blur --layer base --radius 6',
-      'ashop filter.add noise --layer base --amount 10 --seed 7',
+      'ashop filter.add gaussian-blur base --radius 6',
+      'ashop filter.add noise base --amount 10 --seed 7',
     ],
     async run(ctx, args) {
       const { getFilter } = await import('../../core/filters/index.js');
@@ -38,7 +38,7 @@ export default [
   {
     name: 'filter.clear',
     summary: 'Remove all filters from a layer',
-    params: { layer: { type: 'string', required: true } },
+    params: { layer: { type: 'string', positional: true, required: true, desc: 'layer id or name (positional; --layer also accepted)' } },
     async run(ctx, args) {
       const layer = ctx.session.clearFilters(args.layer);
       return { layer: layer.id, filters: [] };

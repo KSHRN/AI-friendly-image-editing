@@ -23,18 +23,23 @@ export default [
     collectUnknown: true,
     params: {
       style: { type: 'string', positional: true, required: true, desc: 'style name, e.g. drop-shadow' },
-      layer: { type: 'string', desc: 'layer id or name' },
+      layer: { type: 'string', positional: true, desc: 'layer id or name (positional; --layer also accepted)' },
       target: { type: 'string', desc: 'alias for --layer' },
     },
     examples: [
-      'ashop style.add drop-shadow --layer base --color "#00000055" --offset-y 12 --blur 24',
-      'ashop style.add stroke --layer logo --width 3 --color "#ffffff"',
+      'ashop style.add drop-shadow base --color "#00000055" --offset-y 12 --blur 24',
+      'ashop style.add stroke logo --width 3 --color "#ffffff"',
     ],
     async run(ctx, args) {
       const { getStyle } = await import('../../core/styles/index.js');
       const def = getStyle(args.style);
       const params = collectOperatorParams(def, args.extra ?? {});
       const layerRef = args.layer ?? args.target;
+      if (layerRef === undefined) {
+        throw new AshopError('E_USAGE', 'style.add needs a layer', {
+          hint: 'ashop style.add drop-shadow <layer> --offset-y 12 --blur 24',
+        });
+      }
       return { layer: ctx.session.addStyle(layerRef, args.style, params).id, style: args.style, params };
     },
   },
@@ -42,7 +47,7 @@ export default [
     name: 'style.remove',
     summary: 'Remove a layer style by type or index',
     params: {
-      layer: { type: 'string', required: true },
+      layer: { type: 'string', positional: true, required: true, desc: 'layer id or name (positional; --layer also accepted)' },
       type: { type: 'string' },
       index: { type: 'int' },
     },
@@ -55,7 +60,7 @@ export default [
     name: 'style.info',
     summary: 'List the styles on one layer',
     mutates: false,
-    params: { layer: { type: 'string', required: true } },
+    params: { layer: { type: 'string', positional: true, required: true, desc: 'layer id or name (positional; --layer also accepted)' } },
     async run(ctx, args) {
       const node = findLayer(ctx.session.doc, args.layer);
       return { layer: node.layer.id, styles: node.layer.styles ?? [] };

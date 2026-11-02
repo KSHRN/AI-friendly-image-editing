@@ -51,10 +51,10 @@ export default [
     summary: 'Run a plugin on a layer (exchanges raw RGBA over stdin/stdout files)',
     params: {
       name: { type: 'string', required: true },
-      layer: { type: 'string', required: true },
+      layer: { type: 'string', positional: true, required: true, desc: 'layer id or name (positional; --layer also accepted)' },
       params: { type: 'json', default: {}, desc: 'plugin-specific parameters' },
     },
-    examples: ['ashop plugin.run --name sepia --layer base --params "{\\"amount\\":0.8}"'],
+    examples: ['ashop plugin.run --name sepia base --params "{\\"amount\\":0.8}"'],
     async run(ctx, args) {
       const result = await runPlugin(ctx.session, args.name, { layer: args.layer, params: args.params });
       return {

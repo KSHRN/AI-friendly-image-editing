@@ -10,7 +10,7 @@ import { AshopError } from '../../core/errors.js';
 const DOC_SHAPE = {
   format: 'ashop/1',
   document: {
-    canvas: { width: 'int', height: 'int', background: 'colour | "transparent"' },
+    canvas: { width: 'int', height: 'int', background: 'colour | "transparent" (default; "transparent" = #00000000)' },
     colorSpace: 'srgb',
     layers: 'bottom -> top; groups nest children',
     selection: '{assetId,width,height} | null',

@@ -7,6 +7,29 @@ import { decodeFile } from '../../core/codec.js';
 import { createHistory } from '../../core/history.js';
 import { setCurrentProject, sessionPath } from '../session-loader.js';
 import { AshopError, fail } from '../../core/errors.js';
+import { parseColor } from '../../core/raster.js';
+
+/**
+ * Canvas background accepts a colour or the literal "transparent".
+ *
+ * The default is already transparent, but the generic `color` parameter type
+ * rejects the word "transparent", so `init --background transparent` failed
+ * even though help and `schema` documented it (F-006). Keep both forms valid
+ * and store "transparent" canonically so the compositor skips the fill.
+ */
+function normalizeBackground(value) {
+  if (value === undefined || value === null || value === '') return 'transparent';
+  const raw = String(value).trim();
+  if (raw.toLowerCase() === 'transparent') return 'transparent';
+  try {
+    parseColor(raw);
+  } catch {
+    fail('E_USAGE', 'background must be a colour like "#ff0000", "#ff000080", "255,0,0" or "transparent"', {
+      hint: `got "${value}"`,
+    });
+  }
+  return raw;
+}
 
 export default {
   name: 'init',
@@ -18,7 +41,7 @@ export default {
     width: { type: 'int', positional: true, desc: 'canvas width in pixels' },
     height: { type: 'int', positional: true, desc: 'canvas height in pixels' },
     'from-image': { type: 'path', desc: 'use the dimensions of this image as the canvas' },
-    background: { type: 'color', default: 'transparent', desc: 'canvas background colour' },
+    background: { type: 'string', default: 'transparent', desc: 'canvas background colour or "transparent" (= #00000000)' },
     name: { type: 'string', desc: 'project name' },
   },
   examples: [
@@ -50,7 +73,7 @@ export default {
     const session = await Session.createProject(target, {
       width,
       height,
-      background: args.background ?? 'transparent',
+      background: normalizeBackground(args.background),
       name: args.name ?? path.basename(target, '.ashop'),
     });
     if (imageRaster) {

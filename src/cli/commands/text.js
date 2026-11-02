@@ -93,7 +93,10 @@ export default [
       if (args.size !== undefined) patch.size = args.size;
       if (args.color !== undefined) patch.color = args.color;
       if (args.fill !== undefined) patch.fill = args.fill;
-      if (args.width !== undefined) patch.width = args.width;
+      // Reset to auto-measured width when the caller does not pin one: the
+      // stored `content.width` is the previous layout's natural width, and
+      // reusing it squeezes longer/newer copy into a vertical column (F-005).
+      patch.width = args.width ?? 0;
       if (args.align !== undefined) patch.align = args.align;
       if (args['line-height'] !== undefined) patch.lineHeight = args['line-height'];
       if (args['letter-spacing'] !== undefined) patch.letterSpacing = args['letter-spacing'];
