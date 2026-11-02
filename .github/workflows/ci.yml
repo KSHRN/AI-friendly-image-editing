@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    # The renderer relies on system fonts (Arial / Segoe UI), so the suite is
+    # validated on the platform the engine targets.
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Unit and end-to-end tests
+        run: npm test
+      - name: CLI smoke test
+        run: npm run smoke

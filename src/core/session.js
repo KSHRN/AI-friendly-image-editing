@@ -25,6 +25,7 @@ import { decodeFile, decodeToRaster, detectMediaType, encodeRaster, encodeMaskPn
 import { Renderer } from './composite.js';
 import { normalizePaintList } from './paint.js';
 import { normalizeShapeContent, normalizeStroke, normalizeStrokeList, SHAPE_CONTENT_VERSION } from './shapes.js';
+import { booleanShapeLayers, multiPolygonToPath, PATH_BOOLEAN_OPS } from './pathops.js';
 import { buildShapeSvg } from './vector.js';
 import { getFilter } from './filters/index.js';
 import { getAdjustment } from './adjustments/index.js';
@@ -458,6 +459,65 @@ export class Session {
       height: Math.round((height + pad * 2) * scale),
       bytes: Buffer.byteLength(svg),
     };
+  }
+
+  /**
+   * Combine two shape layers with a pathfinder boolean.
+   *
+   * The result is one polygonal path layer placed above the operands; by
+   * default the operands are removed (Illustrator's pathfinder behaviour).
+   * Paint and stroke come from the first layer, since that is the operand the
+   * user is "applying" the operation to.
+   */
+  booleanPaths(refA, refB, op, { keepOriginals = false, name = null, tolerance = 0.2 } = {}) {
+    if (!PATH_BOOLEAN_OPS.includes(op)) {
+      fail('E_USAGE', `unknown path boolean: ${op}`, { hint: `use one of: ${PATH_BOOLEAN_OPS.join(', ')}` });
+    }
+    const nodeA = findLayer(this.doc, refA);
+    const nodeB = findLayer(this.doc, refB);
+    if (nodeA.layer.id === nodeB.layer.id) {
+      fail('E_USAGE', 'a path boolean needs two different layers');
+    }
+    for (const node of [nodeA, nodeB]) {
+      if (node.layer.type !== 'shape') {
+        fail('E_UNSUPPORTED', `layer "${node.layer.name}" is a ${node.layer.type} layer`, {
+          hint: 'path booleans only combine shape layers; convert the layer to shapes first',
+        });
+      }
+    }
+    const parentA = nodeA.parent ? nodeA.parent.id : null;
+    const parentB = nodeB.parent ? nodeB.parent.id : null;
+    if (parentA !== parentB) {
+      fail('E_USAGE', 'both layers must live in the same group to be combined', {
+        hint: 'move them next to each other with `layer.move` first',
+      });
+    }
+
+    const multi = booleanShapeLayers(nodeA.layer, nodeB.layer, op, { tolerance });
+    const pathData = multiPolygonToPath(multi);
+    const contentA = normalizeShapeContent(nodeA.layer.content);
+    const fills = contentA.fills.length > 0 ? contentA.fills : firstShapeFills(contentA);
+    const top = nodeA.index > nodeB.index ? nodeA : nodeB;
+    const layer = makeLayer('shape', {
+      name: name ?? `${nodeA.layer.name} ${op} ${nodeB.layer.name}`,
+      opacity: nodeA.layer.opacity ?? 1,
+      blend: nodeA.layer.blend ?? 'normal',
+      transform: { ...defaultTransform(), x: pathData.x, y: pathData.y },
+      content: normalizeShapeContent({
+        type: 'shape',
+        width: pathData.width,
+        height: pathData.height,
+        fills,
+        strokes: contentA.strokes,
+        shapes: [{ kind: 'path', d: pathData.d, fillRule: 'evenodd' }],
+      }),
+    });
+    this.insertNewLayer(layer, { aboveId: top.layer.id });
+    if (!keepOriginals) {
+      this.remove(nodeA.layer.id);
+      this.remove(nodeB.layer.id);
+    }
+    return layer;
   }
 
   duplicate(ref, { name } = {}) {
@@ -983,6 +1043,14 @@ function placeAligned(stage, w, h, align) {
 
 function firstLine(text) {
   return String(text ?? '').split('\n')[0].slice(0, 24) || null;
+}
+
+/** First non-empty paint stack on a shape layer (used by path booleans). */
+function firstShapeFills(content) {
+  for (const shape of content.shapes ?? []) {
+    if (shape.fills?.length) return shape.fills;
+  }
+  return [];
 }
 
 function intersectMode(mask, mode) {

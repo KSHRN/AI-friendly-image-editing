@@ -157,6 +157,14 @@ async function main() {
   run(['layer', 'set', mark.layer.id, '--opacity', '0.9']);
   run(['shape', 'import', markSvg, '--name', 'mark2', '--at', '320,120', '--scale', '0.5']);
 
+  console.log('· path booleans (pathfinder)');
+  run(['shape', 'add', 'rect', '--rect', '280,230,70,50', '--radius', '8', '--fill', '#ff0055', '--name', 'pa']);
+  run(['shape', 'add', 'ellipse', '--ellipse', '350,255,45,30', '--fill', '#00e5ff', '--name', 'pb']);
+  const merged = run(['path', 'boolean', 'pa', 'pb', '--op', 'unite', '--name', 'merged']).layer;
+  run(['path', 'info', merged.id]);
+  run(['path', 'boolean', merged.id, 'grad', '--op', 'subtract', '--keep-originals']);
+  run(['shape', 'set', merged.id, '--fill', '#ffcc00']);
+
   console.log('· render / export / diff / inspect');
   const a = run(['render', path.join(dir, 'a.png')]);
   const b = run(['render', path.join(dir, 'b.png')]);

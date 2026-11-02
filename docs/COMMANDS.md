@@ -659,6 +659,41 @@ ashop open ./shop.ashop
 
 > 写操作（自动保存） · 不需要工程
 
+## path
+
+### `path.boolean`
+
+Combine two shape layers with a pathfinder boolean (unite/subtract/intersect/exclude)
+
+别名：`pathfinder`
+
+| 参数 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `<layer>` | string | 必填 | first shape layer (paint source) |
+| `<other>` | string | 必填 | second shape layer |
+| `--op` | enum | `"unite"` |  |
+| `--keep-originals` | bool | `false` | keep both input layers instead of replacing them |
+| `--tolerance` | number | `0.2` | curve flattening tolerance in px (smaller = smoother, more points) |
+| `--name` | string |  | result layer name |
+
+```bash
+ashop path.boolean badge hole --op subtract
+ashop path.boolean logo circle --op intersect --tolerance 0.1
+```
+
+> 写操作（自动保存）
+
+### `path.info`
+
+Show a shape layer’s path geometry (bounding box and subpath count)
+
+| 参数 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `<layer>` | string | 必填 |  |
+| `--tolerance` | number | `0.2` |  |
+
+> 只读
+
 ## plugin
 
 ### `plugin.add`

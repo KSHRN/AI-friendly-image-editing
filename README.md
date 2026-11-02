@@ -77,7 +77,7 @@ npm run demo:vector
 | 调整（非破坏） | `adjust.add` · `adjust.set` · `adjust.list` |
 | 滤镜 | `filter.add` · `filter.clear` · `filter.list` |
 | 图层样式 | `style.add` · `style.remove` · `style.info` · `style.list` |
-| 排版/矢量 | `text.add` · `text.set` · `text.measure` · `shape.add` · `shape.set` · `shape.info` · `shape.export` · `shape.import` · `fonts.list` · `fonts.info` |
+| 排版/矢量 | `text.add` · `text.set` · `text.measure` · `shape.add` · `shape.set` · `shape.info` · `shape.export` · `shape.import` · `path.boolean` · `path.info` · `fonts.list` · `fonts.info` |
 | 批处理 | `run` |
 | 回归 | `diff` · `inspect.*` |
 | 历史 | `commit` · `history.log` · `history.show` · `history.diff` · `history.branch` · `history.checkout` · `history.reset` · `history.branches` |
@@ -165,6 +165,7 @@ ashop shape export logo out/logo.svg --scale 2
 - 描边支持 `cap / join / miterlimit / dash / dash-offset`；内容栅格会按最大描边宽度自动留白，外半边不会在画布边缘被裁掉。
 - `shape.info` 返回结构化的 `appearance`；`--fill none` 清除填充，`--shape-index` 只改某一个图元。
 - `shape.import` 支持常见 SVG 子集（路径/矩形/圆/椭圆/折线/多边形、渐变、transform、继承与 style）；不支持的标签会进 `warnings` 而不是静默丢失。
+- **路径布尔（路径查找器）**：`ashop path.boolean badge hole --op subtract`，支持 `unite / subtract / intersect / exclude`。两个 shape 图层在画布空间展平后组合，结果是一个 even-odd 多边形图层，填充/描边继承第一个图层；`--keep-originals` 保留原件，`--tolerance` 控制曲线展平精度（默认 0.2px，越小越平滑）。`path.info` 返回结果的外接框、子路径数与点数。
 
 ### 4.6 批处理
 
@@ -218,7 +219,7 @@ my.ashop/
 - PNG 编码固定参数，同版本下逐字节稳定；
 - `ashop render` 返回 `sha256`（文件）与 `pixelHash`（像素），可直接进 CI 断言。
 
-`npm test` 覆盖 138 项，包括「两次渲染哈希一致」「diff 全零」「原子回滚不改文档」「v1 内容与 v2 外观渲染逐像素一致」等；`npm run smoke` 会用 115 条命令把 CLI 全表面跑一遍。
+`npm test` 覆盖 152 项，包括「两次渲染哈希一致」「diff 全零」「原子回滚不改文档」「v1 内容与 v2 外观渲染逐像素一致」「路径布尔逐像素可复现」等；`npm run smoke` 会用 121 条命令把 CLI 全表面跑一遍。
 
 ## 7. 扩展方式（三层）
 
@@ -233,7 +234,8 @@ my.ashop/
 - **组图层不支持自身变换**（子图层各自变换），保证合成语义可预测。
 - **滤镜是记录式而非即时烘焙**：存在图层内容上、每次渲染重放，方便回滚；语义上仍等价于破坏性滤镜。
 - **YAML 脚本暂未实现**，`run` 只接受 JSON；`schema`/`describe` 为将来的 DSL 生成器留好了接口。
-- **矢量外观是「观感级」而不是「编辑级」**：渐变、描边细节、多重填充、对象级不透明度、SVG 导入/导出已经可用；但还没有钢笔工具、锚点编辑、路径布尔运算（路径查找器），也读不了 `.ai` / `.psd`。shape 内容模型已经升级到 v2 并为这些能力留了位置（见 `docs/DESIGN.md`）。
+- **矢量是「观感级 + 路径布尔」而不是完整编辑级**：渐变、描边细节、多重填充、对象级不透明度、SVG 导入/导出、路径查找器（unite/subtract/intersect/exclude）已经可用；但还没有钢笔工具、锚点编辑、文字沿路径，也读不了 `.ai` / `.psd`。shape 内容模型已经升级到 v2 并为这些能力留了位置（见 `docs/DESIGN.md`）。路径布尔的结果是多边形近似，`--tolerance` 控制精度。
+- **路径布尔依赖 `polygon-clipping`**（纯 JS）；坐标在裁剪前量化到 1/1000 px，所以结果仍然可复现。
 
 ## 9. 目录
 
@@ -245,6 +247,7 @@ src/core/                 文档模型、合成器、选区/蒙版、算子、�
 src/core/paint.js         统一 paint 模型（纯色 / 线性 / 径向渐变）+ CSS 渐变解析
 src/core/shapes.js        shape 内容 v2：绘制栈、描边规格、内容归一化、几何 → SVG
 src/core/svgimport.js     SVG → shape 内容的容错解析（无外部依赖）
+src/core/pathops.js       路径布尔：展平 → polygon-clipping → even-odd 路径
 src/core/adjustments/     调色算子（丢文件即注册）
 src/core/filters/         滤镜算子
 src/core/styles/          图层样式

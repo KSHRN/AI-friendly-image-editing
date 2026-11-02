@@ -759,6 +759,21 @@ function flattenArc(x1, y1, rx, ry, rotationDeg, largeArc, sweep, x2, y2, tolera
 }
 
 /**
+ * Flatten SVG path data into closed contours (polyline approximation).
+ *
+ * Public wrapper around the mask rasteriser's parser, so geometric operations
+ * (path booleans, future offset paths) speak exactly the same path grammar as
+ * selection and shape rendering.
+ *
+ * @param {string} svgPath
+ * @param {number} [tolerance=0.2] chord tolerance in content units
+ * @returns {{x:number,y:number}[][]}
+ */
+export function flattenPath(svgPath, tolerance = 0.2) {
+  return parsePath(svgPath, tolerance);
+}
+
+/**
  * SVG path mask. Supports M m L l H h V v C c S s Q q T t A a Z z, relative and
  * absolute forms, adaptive curve flattening and multi-subpath fill rules
  * (holes work for both nonzero and evenodd).

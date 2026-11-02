@@ -69,10 +69,12 @@ function main() {
     '--name', 'card']);
   run(['style.add', 'drop-shadow', '--layer', 'card', '--color', '#000000aa', '--offset-y', '18', '--blur', '36']);
 
-  console.log('· inner badge with multi-fill');
+  console.log('· badge with a cut-out (pathfinder)');
   run(['shape.add', 'rect', '--rect', '100,320,300,80', '--radius', '40',
     '--fills', '[{"type":"solid","color":"#0f172a"},{"type":"linear-gradient","angle":90,"stops":["#ffffff00","#ffffff22"]}]',
-    '--name', 'badge']);
+    '--name', 'pill']);
+  run(['shape.add', 'ellipse', '--ellipse', '372,360,34,34', '--fill', '#ffffff', '--name', 'cut']);
+  run(['path.boolean', 'pill', 'cut', '--op', 'subtract', '--name', 'badge']);
 
   console.log('· gradient text');
   run(['text.add', '--content', 'ASHOP', '--font', 'Arial', '--size', '96', '--weight', '700',

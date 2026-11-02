@@ -1,21 +1,26 @@
 {
   "name": "ashop",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Headless, stateful, deterministic image compositing engine for scripts and agents",
   "type": "module",
   "license": "MIT",
-  "bin": { "ashop": "bin/ashop.js" },
-  "engines": { "node": ">=22" },
+  "bin": {
+    "ashop": "bin/ashop.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "docs": "node scripts/gen-docs.mjs",
     "smoke": "node scripts/smoke.mjs",
     "demo": "node examples/demo.mjs",
     "demo:vector": "node examples/vector.mjs",
-    "test": "node --test --test-concurrency=1 test/core.test.js test/mask.test.js test/diff.test.js test/e2e.test.js test/daemon.test.js test/svg-import.test.js test/appearance.test.js"
+    "test": "node --test --test-concurrency=1 test/core.test.js test/mask.test.js test/diff.test.js test/e2e.test.js test/daemon.test.js test/svg-import.test.js test/appearance.test.js test/pathops.test.js"
   },
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2",
     "fontkit": "^2.0.4",
+    "polygon-clipping": "^0.15.7",
     "sharp": "^0.35.5"
   }
 }
