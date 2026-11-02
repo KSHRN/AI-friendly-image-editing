@@ -9,7 +9,10 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AshopError, asAshopError } from '../core/errors.js';
-import { pipePath } from '../daemon/server.js';
+import { pipePath, daemonKey } from '../daemon/server.js';
+import {
+  writePidFile, readPidFile, removePidFile, isProcessAlive, daemonTimeoutHint,
+} from '../daemon/pidfile.js';
 
 const CLI_ENTRY = fileURLToPath(new URL('../../bin/ashop.js', import.meta.url));
 
@@ -85,6 +88,27 @@ function spawnDaemon(project) {
     env: { ...process.env },
   });
   child.unref();
+  // Remember the PID so a later timeout can name the process instead of
+  // leaving the caller to hunt for an orphan.
+  if (child.pid) {
+    writePidFile(daemonKey(project), {
+      pid: child.pid,
+      project: path.resolve(project),
+      pipe: pipePath(project),
+      startedAt: new Date().toISOString(),
+    });
+  }
+  return child.pid ?? null;
+}
+
+/** Turn a bare request timeout into an actionable error that names the PID. */
+function timeoutError(project) {
+  const key = daemonKey(project);
+  const { hint, details } = daemonTimeoutHint(project, key, readPidFile(key));
+  return new AshopError('E_DAEMON_TIMEOUT', 'the project daemon did not answer in time; the command may still be running there', {
+    hint,
+    details,
+  });
 }
 
 export async function execViaDaemon(project, command, args, { timeoutMs = 180000 } = {}) {
@@ -98,18 +122,19 @@ export async function execViaDaemon(project, command, args, { timeoutMs = 180000
     // be followed by a spawn + retry.
     response = await requestOnce(pipe, payload, timeoutMs);
   } catch (err) {
-    if (err.code === 'E_DAEMON_TIMEOUT') {
-      throw new AshopError('E_DAEMON_TIMEOUT', 'the project daemon did not answer in time; the command may still be running there', {
-        hint: `run \`ashop daemon.stop --project "${project}"\`, then retry with --no-daemon`,
-      });
-    }
+    if (err.code === 'E_DAEMON_TIMEOUT') throw timeoutError(project);
     if (err.code !== 'E_DAEMON') throw err;
     spawnDaemon(project);
     const ready = await waitForDaemon(pipe);
     if (!ready) {
       throw new AshopError('E_DAEMON', 'daemon failed to start', { hint: 'retry with --no-daemon to run in-process' });
     }
-    response = await requestOnce(pipe, payload, timeoutMs);
+    try {
+      response = await requestOnce(pipe, payload, timeoutMs);
+    } catch (retryErr) {
+      if (retryErr.code === 'E_DAEMON_TIMEOUT') throw timeoutError(project);
+      throw retryErr;
+    }
   }
   if (!response.ok) {
     throw new AshopError(response.error?.code ?? 'E_INTERNAL', response.error?.message ?? 'daemon error', {
@@ -127,6 +152,11 @@ export async function pingDaemon(project) {
     socket.destroy();
     return { running: true, pipe, project, key: path.basename(pipe) };
   } catch {
+    // The pipe is gone; drop a pid file whose process is definitely dead so a
+    // later timeout hint never points at a recycled PID.
+    const key = daemonKey(project);
+    const info = readPidFile(key);
+    if (info && !isProcessAlive(info.pid)) removePidFile(key);
     return { running: false, pipe, project };
   }
 }
