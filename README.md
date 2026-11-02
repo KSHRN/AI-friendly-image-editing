@@ -75,7 +75,7 @@ npm run demo:vector
 |---|---|
 | 工程 | `init` · `open` · `close` · `status` · `save` · `render` · `export` |
 | 守护进程 | `daemon.start` · `daemon.status` · `daemon.stop` |
-| 图层 | `layer.import` · `layer.fill` · `layer.list` · `layer.info` · `layer.set` · `layer.move` · `layer.transform` · `layer.duplicate` · `layer.remove` · `layer.group` · `layer.ungroup` · `layer.merge-down` |
+| 图层 | `layer.import` · `layer.fill` · `layer.crop` · `layer.list` · `layer.info` · `layer.set` · `layer.move` · `layer.transform` · `layer.duplicate` · `layer.remove` · `layer.group` · `layer.ungroup` · `layer.merge-down` |
 | 选区 | `select.rect` · `select.ellipse` · `select.polygon` · `select.path` · `select.color` · `select.luminance` · `select.alpha` · `select.all` · `select.none` · `select.invert` · `select.modify` |
 | 蒙版 | `mask.from-selection` · `mask.modify` · `mask.apply` · `mask.remove` · `mask.export` |
 | 调整（非破坏） | `adjust.add` · `adjust.set` · `adjust.list` |
@@ -192,7 +192,13 @@ ashop shape export logo out/logo.svg --scale 2
 ashop run ops.json --dry-run          # 只校验
 ashop run ops.json --atomic           # 失败回滚
 ashop run ops.json --atomic --commit -m "batch"
+ashop run ops.json --fresh --atomic   # 先清空画布，脚本可重复执行
 ```
+
+- 步骤参数与命令行**同源解析**：`"100,80,400,120"` 这样的字符串、JSON 数组/对象（如 `"polygon": [[0,0],[200,0],[100,160]]`）、以及各参数的默认值，在 `run` 里和在命令行上的含义完全一致；写成错误的类型会得到 `E_USAGE` 而不是内部异常。
+- 脚本从零开始构建图像时应加 `--fresh`：它先把目标画布重置为同尺寸空文档，再执行步骤，因此同一个脚本可以重复运行（否则第二次会撞上重名图层）。
+- `--z-index` 是**堆叠顺序**：数值越大越靠上，相同 z 值按插入先后（后插入者在上）；未显式给 z 的图层叠在 `z-index 0` 之上，所以 `--z-index 0` 仍是「最底层背景」的写法。
+- `layer.crop <layer> --rect "x,y,w,h"` 按**内容空间**裁切（对栅格图层即源像素坐标系），裁掉的像素写入新的内容寻址资源，`--reset` 可还原，`--keep-position` 保持裁切后像素在画布上的原位置。
 
 ### 4.7 历史
 

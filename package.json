@@ -15,7 +15,7 @@
     "smoke": "node scripts/smoke.mjs",
     "demo": "node examples/demo.mjs",
     "demo:vector": "node examples/vector.mjs",
-    "test": "node --test --test-concurrency=1 test/core.test.js test/mask.test.js test/diff.test.js test/e2e.test.js test/daemon.test.js test/svg-import.test.js test/appearance.test.js test/pathops.test.js"
+    "test": "node --test --test-concurrency=1 test/core.test.js test/mask.test.js test/diff.test.js test/e2e.test.js test/daemon.test.js test/svg-import.test.js test/appearance.test.js test/pathops.test.js test/fix-a.test.js test/fix-b.test.js test/fix-c.test.js test/fix-lead.test.js"
   },
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2",

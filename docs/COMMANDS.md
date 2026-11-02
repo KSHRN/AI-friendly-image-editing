@@ -172,11 +172,11 @@ Add a filter to a layer (stackable, applied in content space)
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
 | `<filter>` | string | 必填 | filter name, e.g. gaussian-blur |
-| `--layer` | string | 必填 |  |
+| `<layer>` | string | 必填 | layer id or name (positional; --layer also accepted) |
 
 ```bash
-ashop filter.add gaussian-blur --layer base --radius 6
-ashop filter.add noise --layer base --amount 10 --seed 7
+ashop filter.add gaussian-blur base --radius 6
+ashop filter.add noise base --amount 10 --seed 7
 ```
 
 > 写操作（自动保存）
@@ -187,7 +187,7 @@ Remove all filters from a layer
 
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
-| `--layer` | string | 必填 |  |
+| `<layer>` | string | 必填 | layer id or name (positional; --layer also accepted) |
 
 > 写操作（自动保存）
 
@@ -317,7 +317,7 @@ Create a new project (canvas size, or dimensions from an image)
 | `<width>` | int |  | canvas width in pixels |
 | `<height>` | int |  | canvas height in pixels |
 | `--from-image` | path |  | use the dimensions of this image as the canvas |
-| `--background` | color | `"transparent"` | canvas background colour |
+| `--background` | string | `"transparent"` | canvas background colour or "transparent" (= #00000000) |
 | `--name` | string |  | project name |
 
 ```bash
@@ -338,6 +338,7 @@ Most common colours in the composite or in one layer
 | `--layer` | string |  |  |
 | `--limit` | int | `8` |  |
 | `--quantize` | int | `16` |  |
+| `--min-alpha` | int | `8` | ignore pixels with alpha below this value (0..255) |
 
 > 只读
 
@@ -403,6 +404,25 @@ Bounds and coverage of the active selection
 
 ## layer
 
+### `layer.crop`
+
+Crop a raster layer to a rect in content space (reversible with --reset)
+
+| 参数 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `<layer>` | string | 必填 | raster layer id or name |
+| `--rect` | rect |  | crop box in content units, e.g. "0,0,400,300" |
+| `--keep-position` | bool | `false` | keep the cropped pixels at their current canvas position instead of putting the crop box at the layer origin |
+| `--reset` | bool | `false` | restore the pre-crop image, size and mask |
+
+```bash
+ashop layer.crop base --rect "100,60,800,600"
+ashop layer.crop base --rect "0,0,512,512" --keep-position
+ashop layer.crop base --reset
+```
+
+> 写操作（自动保存）
+
 ### `layer.duplicate`
 
 Duplicate a layer (and its group children)
@@ -460,7 +480,7 @@ Import an image file as a raster layer
 | `--align` | enum | `"center"` |  |
 | `--scale` | number | `1` |  |
 | `--rotation` | number | `0` |  |
-| `--z-index` | int |  | 0 = bottom |
+| `--z-index` | int |  | stacking order: higher sits above lower, equal z keeps insertion order (later on top) |
 | `--parent` | string |  | group layer id |
 | `--opacity` | number | `1` |  |
 | `--blend` | string | `"normal"` |  |
@@ -587,7 +607,7 @@ Bake a raster layer mask into its pixels and remove the mask
 
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
-| `--layer` | string | 必填 |  |
+| `<layer>` | string | 必填 | layer id or name (positional; --layer also accepted) |
 
 > 写操作（自动保存）
 
@@ -597,7 +617,7 @@ Export a layer mask as a grayscale PNG
 
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
-| `--layer` | string | 必填 |  |
+| `<layer>` | string | 必填 | layer id or name (positional; --layer also accepted) |
 | `--out` | path | 必填 | output PNG path |
 
 > 只读
@@ -608,12 +628,12 @@ Turn the current selection into a layer mask
 
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
-| `--layer` | string | 必填 |  |
+| `<layer>` | string | 必填 | layer id or name (positional; --layer also accepted) |
 | `--feather` | number | `0` |  |
 | `--invert` | bool | `false` |  |
 
 ```bash
-ashop mask from-selection --layer base --feather 1
+ashop mask from-selection base --feather 1
 ```
 
 > 写操作（自动保存）
@@ -624,7 +644,7 @@ Feather, grow, shrink, border or invert a layer mask
 
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
-| `--layer` | string | 必填 |  |
+| `<layer>` | string | 必填 | layer id or name (positional; --layer also accepted) |
 | `--feather` | number | `0` |  |
 | `--grow` | number | `0` |  |
 | `--shrink` | number | `0` |  |
@@ -639,7 +659,7 @@ Remove a layer mask
 
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
-| `--layer` | string | 必填 |  |
+| `<layer>` | string | 必填 | layer id or name (positional; --layer also accepted) |
 
 > 写操作（自动保存）
 
@@ -737,11 +757,11 @@ Run a plugin on a layer (exchanges raw RGBA over stdin/stdout files)
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
 | `--name` | string | 必填 |  |
-| `--layer` | string | 必填 |  |
+| `<layer>` | string | 必填 | layer id or name (positional; --layer also accepted) |
 | `--params` | json | `{}` | plugin-specific parameters |
 
 ```bash
-ashop plugin.run --name sepia --layer base --params "{\"amount\":0.8}"
+ashop plugin.run --name sepia base --params "{\"amount\":0.8}"
 ```
 
 > 写操作（自动保存）
@@ -777,6 +797,7 @@ Run a declarative ops JSON script (atomic, dry-run, variables)
 | `<file>` | path | 必填 | ops JSON file |
 | `--atomic` | bool | `false` | roll back everything if any step fails |
 | `--dry-run` | bool | `false` | validate the plan without changing the document |
+| `--fresh` | bool | `false` | reset the session to an empty canvas first, so the script can be re-run |
 | `--commit` | bool | `false` | create one commit after a successful run |
 | `--message` | string |  | commit message for --commit |
 | `--vars` | json |  | extra variables as JSON object, e.g. {"bg":"#ffffff"} |
@@ -784,6 +805,7 @@ Run a declarative ops JSON script (atomic, dry-run, variables)
 ```bash
 ashop run ops/sku_batch.json --atomic --commit -m "sku batch"
 ashop run ops/sku_batch.json --dry-run
+ashop run ops/sticker.json --fresh --atomic
 ```
 
 > 写操作（自动保存）
@@ -1002,7 +1024,7 @@ Import an SVG file as a vector shape layer
 |---|---|---|---|
 | `<file>` | path | 必填 | SVG file to import |
 | `--name` | string |  | layer name (defaults to the file name) |
-| `--z-index` | int |  | 0 = bottom |
+| `--z-index` | int |  | stacking order: higher sits above lower, equal z keeps insertion order (later on top) |
 | `--at` | point |  | top-left position on canvas |
 | `--scale` | number | `1` |  |
 | `--rotation` | number | `0` |  |
@@ -1080,12 +1102,12 @@ Add a layer style (drop shadow, stroke, glow, bevel)
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
 | `<style>` | string | 必填 | style name, e.g. drop-shadow |
-| `--layer` | string |  | layer id or name |
+| `<layer>` | string |  | layer id or name (positional; --layer also accepted) |
 | `--target` | string |  | alias for --layer |
 
 ```bash
-ashop style.add drop-shadow --layer base --color "#00000055" --offset-y 12 --blur 24
-ashop style.add stroke --layer logo --width 3 --color "#ffffff"
+ashop style.add drop-shadow base --color "#00000055" --offset-y 12 --blur 24
+ashop style.add stroke logo --width 3 --color "#ffffff"
 ```
 
 > 写操作（自动保存）
@@ -1096,7 +1118,7 @@ List the styles on one layer
 
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
-| `--layer` | string | 必填 |  |
+| `<layer>` | string | 必填 | layer id or name (positional; --layer also accepted) |
 
 > 只读
 
@@ -1112,7 +1134,7 @@ Remove a layer style by type or index
 
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
-| `--layer` | string | 必填 |  |
+| `<layer>` | string | 必填 | layer id or name (positional; --layer also accepted) |
 | `--type` | string |  |  |
 | `--index` | int |  |  |
 
