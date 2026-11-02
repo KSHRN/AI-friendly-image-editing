@@ -83,7 +83,7 @@ export async function main(argv) {
       session: null, projectPath: null, cwd: process.cwd(), args: values,
       projectArg: globals.project, sessionArg: globals.session,
     };
-    data = await command.run(ctx, values);
+    data = await runCommand(command, ctx, values);
   } else {
     const projectPath = await resolveProjectPath({
       project: globals.project,
@@ -110,7 +110,7 @@ export async function main(argv) {
     if (!ranViaDaemon) {
       const session = await Session.open(projectPath);
       const ctx = { session, projectPath, cwd: process.cwd(), args: values, projectArg: globals.project, sessionArg: globals.session };
-      data = await command.run(ctx, values);
+      data = await runCommand(command, ctx, values);
       if (command.mutates !== false) await session.save();
     }
   }
@@ -119,6 +119,31 @@ export async function main(argv) {
   const json = command.outputText ? false : globals.json;
   process.stdout.write(formatOutput(result, { json, pretty: globals.pretty }) + '\n');
   return 0;
+}
+
+/**
+ * Run one command, guaranteeing the caller always gets a structured error.
+ *
+ * A raw JS exception escaping a command (a TypeError from a bad argument
+ * shape, for example) would otherwise surface as `E_INTERNAL` with a stack
+ * message and no hint, which tells an automated caller nothing useful.
+ * Structured errors pass through untouched; anything else is wrapped with a
+ * hint that points at the command's own help.
+ */
+async function runCommand(command, ctx, values) {
+  try {
+    return await command.run(ctx, values);
+  } catch (err) {
+    if (err instanceof AshopError) throw err;
+    const message = err && err.message ? String(err.message) : String(err);
+    const argumentShaped = err instanceof TypeError || err instanceof RangeError || err instanceof SyntaxError;
+    throw new AshopError(argumentShaped ? 'E_USAGE' : 'E_INTERNAL', `${command.name}: ${message}`, {
+      hint: argumentShaped
+        ? `the arguments did not match \`ashop help ${command.name}\`; if they look right this is an ashop bug`
+        : `this is an ashop bug in "${command.name}"; report it with the command and this message`,
+      cause: err instanceof Error ? err : undefined,
+    });
+  }
 }
 
 function extractGlobals(argv) {

@@ -136,12 +136,12 @@ function coerce(raw, def, name) {
     switch (type) {
       case 'int': {
         const v = Number(raw);
-        if (!Number.isInteger(v)) fail('E_USAGE', `${name} must be an integer, got ${raw}`);
+        if (!Number.isInteger(v)) fail('E_USAGE', `${name} must be an integer, got ${raw}`, { hint: 'pass a whole number, e.g. 60' });
         return v;
       }
       case 'number': {
         const v = Number(String(raw).trim().replace(/px$/i, ''));
-        if (!Number.isFinite(v)) fail('E_USAGE', `${name} must be a number, got ${raw}`);
+        if (!Number.isFinite(v)) fail('E_USAGE', `${name} must be a number, got ${raw}`, { hint: 'pass a number, e.g. 25 or "25px"' });
         return v;
       }
       case 'bool':
@@ -161,7 +161,9 @@ function coerce(raw, def, name) {
         return parsePolygon(raw);
       case 'numberList': {
         const parts = String(raw).split(/[, ]+/).filter(Boolean).map(Number);
-        if (parts.some((v) => !Number.isFinite(v))) fail('E_USAGE', `${name} must be a list of numbers`);
+        if (parts.some((v) => !Number.isFinite(v))) {
+          fail('E_USAGE', `${name} must be a list of numbers, got ${raw}`, { hint: 'use a comma-separated list, e.g. "8,4"' });
+        }
         return parts;
       }
       case 'curve':
@@ -189,8 +191,120 @@ function coerce(raw, def, name) {
     }
   } catch (err) {
     if (err instanceof AshopError) throw err;
-    fail('E_USAGE', `invalid value for ${name}: ${err.message}`);
+    fail('E_USAGE', `invalid value for ${name}: ${err.message}`, { hint: `expected a ${type}` });
   }
+}
+
+/**
+ * Coerce one already-decoded value (from an ops file) exactly like the CLI
+ * would coerce the equivalent string.
+ *
+ * This is the single entry point the batch runner uses, so `run` and a direct
+ * invocation can never disagree about what "600,500,450,450" means.
+ */
+export function coerceArg(value, def, name) {
+  const type = def?.type ?? 'string';
+  if (typeof value === 'string') return coerce(value, def, name);
+  if (value === undefined || value === null) return value;
+  switch (type) {
+    case 'int':
+      if (typeof value !== 'number' || !Number.isInteger(value)) {
+        fail('E_USAGE', `${name} must be an integer, got ${describeValue(value)}`, { hint: 'write it as a JSON integer, e.g. 60' });
+      }
+      return value;
+    case 'number':
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        fail('E_USAGE', `${name} must be a number, got ${describeValue(value)}`, { hint: 'write it as a JSON number, e.g. 25' });
+      }
+      return value;
+    case 'bool':
+      return parseBool(value);
+    case 'enum': {
+      const allowed = def.values ?? [];
+      const s = String(value);
+      if (!allowed.includes(s)) {
+        fail('E_USAGE', `${name} must be one of: ${allowed.join(', ')}`, { hint: `got ${describeValue(value)}` });
+      }
+      return s;
+    }
+    case 'point':
+      return parsePoint(value);
+    case 'rect':
+      return parseRect(value);
+    case 'polygon':
+      return parsePolygon(value);
+    case 'numberList': {
+      if (!Array.isArray(value)) {
+        fail('E_USAGE', `${name} must be a list of numbers, got ${describeValue(value)}`, { hint: 'use [1, 2, 3] or "1 2 3"' });
+      }
+      const parts = value.map(Number);
+      if (parts.some((v) => !Number.isFinite(v))) {
+        fail('E_USAGE', `${name} must be a list of numbers, got ${describeValue(value)}`);
+      }
+      return parts;
+    }
+    case 'json':
+    case 'curve':
+    case 'vec3':
+      return value;
+    case 'paint':
+      return normalizePaint(value);
+    case 'color':
+      fail('E_USAGE', `${name} must be a colour string, got ${describeValue(value)}`, {
+        hint: 'use "#ff0000", "#ff000080" or "255,0,0"',
+      });
+      break;
+    default:
+      // string / path
+      if (typeof value === 'object' || Array.isArray(value)) {
+        fail('E_USAGE', `${name} must be a string, got ${describeValue(value)}`, { hint: 'pass a single value, not an object' });
+      }
+      return String(value);
+  }
+  return value;
+}
+
+function describeValue(value) {
+  let text;
+  try {
+    text = JSON.stringify(value);
+  } catch {
+    text = String(value);
+  }
+  if (text == null) text = String(value);
+  return text.length > 60 ? `${text.slice(0, 57)}...` : text;
+}
+
+/**
+ * Decode the `args` object of one ops step into the shape a command expects.
+ *
+ * Mirrors `parseArgs`: declared params are coerced by type, defaults are
+ * filled in, and unknown keys go to `args.extra` for commands that collect
+ * operator parameters (filter / adjust / style). Without this the batch runner
+ * used to hand raw JSON strings to commands that expect points or rects, which
+ * is how `ellipse` ended up with `cx:"0"` and a 1px width.
+ */
+export function coerceStepArgs(command, rawArgs = {}, label = null) {
+  const params = normalizeParams(command.params);
+  const out = {};
+  const extra = {};
+  for (const [key, raw] of Object.entries(rawArgs ?? {})) {
+    const def = params[key];
+    if (!def) {
+      if (command.collectUnknown) extra[key] = raw;
+      else out[key] = raw;
+      continue;
+    }
+    if (raw === undefined) continue;
+    out[key] = coerceArg(raw, def, label ? `${label}: ${key}` : key);
+  }
+  // Same defaults the CLI applies, so `run` and a direct call agree on
+  // optional parameters too.
+  for (const [name, def] of Object.entries(params)) {
+    if (out[name] === undefined && def.default !== undefined) out[name] = def.default;
+  }
+  if (command.collectUnknown) out.extra = { ...(out.extra ?? {}), ...extra };
+  return out;
 }
 
 function suggest(key, known) {

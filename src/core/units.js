@@ -25,9 +25,29 @@ export function parseLength(value, base, { allowPercent = true } = {}) {
   }
 }
 
-/** Parse "x,y" into a point. */
+/**
+ * Parse "x,y" | [x, y] | {x, y} into a point.
+ *
+ * The object/array forms matter for the batch runner: an ops file is JSON, so
+ * a point there is naturally a list, and it must mean exactly what the CLI
+ * means by "x,y".
+ */
 export function parsePoint(value) {
-  if (Array.isArray(value)) return { x: Number(value[0]), y: Number(value[1]) };
+  if (Array.isArray(value)) {
+    const [x, y] = value.map(Number);
+    if (value.length !== 2 || !Number.isFinite(x) || !Number.isFinite(y)) {
+      throw new AshopError('E_USAGE', `not a point: ${JSON.stringify(value)}`, { hint: 'use [x, y], e.g. [120, 40]' });
+    }
+    return { x, y };
+  }
+  if (value && typeof value === 'object') {
+    const x = Number(value.x);
+    const y = Number(value.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      throw new AshopError('E_USAGE', `not a point: ${JSON.stringify(value)}`, { hint: 'use {"x": 120, "y": 40}' });
+    }
+    return { x, y };
+  }
   const parts = String(value).trim().split(/[, ]+/).map(Number);
   if (parts.length < 2 || parts.some((v) => !Number.isFinite(v))) {
     throw new AshopError('E_USAGE', `not a point: ${value}`, { hint: 'use "x,y", e.g. "120,40"' });
@@ -35,11 +55,22 @@ export function parsePoint(value) {
   return { x: parts[0], y: parts[1] };
 }
 
-/** Parse "x,y,w,h" (or an object) into a rect. */
+/** Parse "x,y,w,h" | [x, y, w, h] | object into a rect. */
 export function parseRect(value) {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
+  if (Array.isArray(value)) {
+    const parts = value.map(Number);
+    if (value.length !== 4 || parts.some((v) => !Number.isFinite(v))) {
+      throw new AshopError('E_USAGE', `not a rect: ${JSON.stringify(value)}`, { hint: 'use [x, y, w, h], e.g. [10, 10, 400, 300]' });
+    }
+    return { x: parts[0], y: parts[1], width: parts[2], height: parts[3] };
+  }
+  if (value && typeof value === 'object') {
     const { x, y, width, height, w, h } = value;
-    return { x: Number(x), y: Number(y), width: Number(width ?? w), height: Number(height ?? h) };
+    const rect = { x: Number(x), y: Number(y), width: Number(width ?? w), height: Number(height ?? h) };
+    if (Object.values(rect).some((v) => !Number.isFinite(v))) {
+      throw new AshopError('E_USAGE', `not a rect: ${JSON.stringify(value)}`, { hint: 'use {"x": 10, "y": 10, "width": 400, "height": 300}' });
+    }
+    return rect;
   }
   const parts = String(value).trim().split(/[, ]+/).map(Number);
   if (parts.length !== 4 || parts.some((v) => !Number.isFinite(v))) {
@@ -48,8 +79,15 @@ export function parseRect(value) {
   return { x: parts[0], y: parts[1], width: parts[2], height: parts[3] };
 }
 
-/** Parse "x1,y1 x2,y2 ..." into a list of points. */
+/**
+ * Parse "x1,y1 x2,y2 ..." | [[x1,y1],[x2,y2],...] | [{x,y},...] into points.
+ */
 export function parsePolygon(value) {
+  if (Array.isArray(value)) {
+    const pts = value.map((pair) => parsePoint(pair));
+    if (pts.length < 3) throw new AshopError('E_USAGE', 'a polygon needs at least 3 points');
+    return pts;
+  }
   const pts = String(value).trim().split(/\s+/).filter(Boolean).map((pair) => {
     const [x, y] = pair.split(',').map(Number);
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
@@ -76,7 +114,7 @@ export function parseBool(value) {
   const s = String(value).toLowerCase();
   if (['true', 'yes', '1', 'on'].includes(s)) return true;
   if (['false', 'no', '0', 'off'].includes(s)) return false;
-  throw new AshopError('E_USAGE', `not a boolean: ${value}`);
+  throw new AshopError('E_USAGE', `not a boolean: ${value}`, { hint: 'use true or false' });
 }
 
 /** Clamp helper. */
